@@ -1169,7 +1169,9 @@ class RUMBoost:
                                 "monotone_constraints"
                             ][0],
                         )
-                        * data.get_data()[self.rum_structure[k]["endogenous_variable"]].values
+                        * data.get_data()[
+                            self.rum_structure[k]["endogenous_variable"]
+                        ].values
                     )
                     if "endogenous_variable" in self.rum_structure[k].keys()
                     else booster.predict(
@@ -1847,6 +1849,13 @@ class RUMBoost:
             The leaf value of the left child.
         l_1 : float
             The leaf value of the right child.
+
+        Returns
+        -------
+        l_0 : float
+            The new leaf value of the left child, respecting monotonicity constraints.
+        l_1 : float
+            The new leaf value of the right child, respecting monotonicity constraints.
         """
         monotone_constraints = self.rum_structure[j]["boosting_params"].get(
             "monotone_constraints", [0]
@@ -1866,6 +1875,7 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 0, l_0 + offset * m_copy
                     )
+                    l_0 = torch.tensor(l_0 + offset * m_copy).to(self.device)
                 if torch.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
                     offset = torch.max(
                         -self.split_and_leaf_values[j]["leaves"][index:] * m
@@ -1876,6 +1886,8 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
                     )
+                    l_1 = torch.tensor(l_1 + offset * m).to(self.device)
+
             else:
                 m = monotone_constraints[0]
                 if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
@@ -1886,6 +1898,7 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 0, l_0 + offset * m
                     )
+                    l_0 = l_0 + offset * m
                 if np.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
                     offset = np.max(
                         -self.split_and_leaf_values[j]["leaves"][index:] * m
@@ -1894,6 +1907,9 @@ class RUMBoost:
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
                     )
+                    l_1 = l_1 + offset * m
+
+        return l_0, l_1
 
     def _gather_split_info(self, booster):
         """
@@ -1966,7 +1982,13 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
+
+                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
+                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
+                    #     self.split_and_leaf_values[j]["constants"][index:]
+                    #     + l_0 * s,
+                    # )
                 else:
                     index = torch.searchsorted(
                         self.split_and_leaf_values[j]["splits"], s
@@ -1986,19 +2008,40 @@ class RUMBoost:
                         )
                     )
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
-                self.split_and_leaf_values[j]["constants"] = torch.cat(
-                    (
-                        torch.zeros(1, device=self.device),
-                        torch.cumsum(
-                            self.split_and_leaf_values[j]["leaves"]
-                            * torch.diff(self.split_and_leaf_values[j]["splits"]),
-                            dim=0,
-                        ),
-                    ),
-                    dim=0,
+                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
+                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
+                    #     self.split_and_leaf_values[j]["constants"][index],
+                    #     self.split_and_leaf_values[j]["constants"][index:]
+                    #     + l_0 * s,
+                    # )
+
+                indices = torch.arange(
+                    self.split_and_leaf_values[j]["splits"].shape[0] - 1,
+                    device=self.device,
                 )
+                indices_l = (indices[None, :] <= indices[:, None]).T
+                indices_r = ~ indices_l
+                splits = self.split_and_leaf_values[j]["splits"]
+                leaves = self.split_and_leaf_values[j]["leaves"]
+                left_constants = splits[:-1] * leaves
+                right_constants = splits[1:] * leaves
+                self.split_and_leaf_values[j]["value_at_splits"] = (
+                    left_constants * indices_l + right_constants * indices_r
+                ).sum(axis=0)
+
+                # self.split_and_leaf_values[j]["value_at_splits"] = torch.cat(
+                #     (
+                #         torch.zeros(1, device=self.device),
+                #         torch.cumsum(
+                #             self.split_and_leaf_values[j]["leaves"]
+                #             * torch.diff(self.split_and_leaf_values[j]["splits"]),
+                #             dim=0,
+                #         ),
+                #     ),
+                #     dim=0,
+                # ) + self.split_and_leaf_values[j]["constants"]
             else:
                 l_0 = leaf_values[0]
                 l_1 = leaf_values[1]
@@ -2009,7 +2052,7 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
                 else:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["splits"] = np.insert(
@@ -2022,7 +2065,7 @@ class RUMBoost:
                         )
                     )
                     # check and ensure monotonicity
-                    self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
                 self.split_and_leaf_values[j]["constants"] = np.cumsum(
                     self.split_and_leaf_values[j]["leaves"]
@@ -2032,7 +2075,7 @@ class RUMBoost:
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
-        csts = self.split_and_leaf_values[j]["constants"]
+        csts = self.split_and_leaf_values[j]["value_at_splits"]
         lvs = self.split_and_leaf_values[j]["leaves"]
         if self.device is not None:
             data_t = torch.from_numpy(data).to(self.device)
@@ -2176,6 +2219,8 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].cpu().numpy().tolist(),
                         "leaves": v["leaves"].cpu().numpy().tolist(),
+                        "constants": v["constants"].cpu().numpy().tolist(),
+                        "value_at_split": v["value_at_split"].cpu().numpy().tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
                 }
@@ -2238,6 +2283,8 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].tolist(),
                         "leaves": v["leaves"].tolist(),
+                        "constants": v["constants"].tolist(),
+                        "value_at_split": v["value_at_split"].tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
                 }
@@ -3082,6 +3129,7 @@ def rum_train(
                         "splits": np.array([data.min(), data.max()]),
                         "constants": np.array([0.0, 0.0]),
                         "leaves": np.array([0.0]),
+                        "value_at_splits": np.array([0.0, 0.0]),
                     }
                     rumb.distances[j] = data
     else:
@@ -3436,7 +3484,9 @@ def rum_train(
 
             rumb._update_mu_or_alphas(res, optimise_mu, optimise_alphas, alpha_shape)
 
-        if optimise_thresholds and (i % optim_interval == 0): # need to optimise form first iteration for ordinal logit
+        if optimise_thresholds and (
+            i % optim_interval == 0
+        ):  # need to optimise form first iteration for ordinal logit
 
             thresh_diff = threshold_to_diff(rumb.thresholds)
 
