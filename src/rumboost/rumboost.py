@@ -1266,12 +1266,15 @@ class RUMBoost:
         # using pytorch if required
         if self.device is not None:
             if data_idx == 0:
-                raw_preds = (
-                    self.raw_preds.view(-1, self.num_obs[data_idx]).T[
-                        self.subsample_idx, :
-                    ]
-                    + self.asc
-                )
+                if self.num_classes == 2:
+                    raw_preds = self.raw_preds + self.asc
+                else:
+                    raw_preds = (
+                        self.raw_preds.view(-1, self.num_obs[data_idx]).T[
+                            self.subsample_idx, :
+                        ]
+                        + self.asc
+                    )
             else:
                 if (
                     self.num_classes == 2
@@ -1353,12 +1356,16 @@ class RUMBoost:
 
         # reshaping raw predictions into num_obs, num_classes array
         if data_idx == 0:
-            raw_preds = (
-                self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
-                    self.subsample_idx, :
-                ]
-                + self.asc
-            )
+            if self.num_classes == 2:
+                raw_preds = self.raw_preds + self.asc
+            else:
+                # reshaping raw predictions into num_obs, num_classes array
+                raw_preds = (
+                    self.raw_preds.reshape((self.num_obs[data_idx], -1), order="F")[
+                        self.subsample_idx, :
+                    ]
+                    + self.asc
+                )
         else:
             if self.num_classes == 2:  # binary classification requires only one column
                 raw_preds = np.zeros(self.num_obs[data_idx])
@@ -1769,13 +1776,19 @@ class RUMBoost:
             The indices of the best booster(s) chosen to be updated.
         """
         # reinitialise raw predictions
-        if self.device is not None:
-            self.raw_preds = torch.zeros(
-                self.num_obs[0] * self.num_classes,
-                device=self.device,
-            )
+        if self.num_classes == 2:
+            if self.device is not None:
+                self.raw_preds = torch.zeros(self.num_obs[0], device=self.device)
+            else:
+                self.raw_preds = np.zeros(self.num_obs[0])
         else:
-            self.raw_preds = np.zeros(self.num_obs[0] * self.num_classes)
+            if self.device is not None:
+                self.raw_preds = torch.zeros(
+                    self.num_obs[0] * self.num_classes,
+                    device=self.device,
+                )
+            else:
+                self.raw_preds = np.zeros(self.num_obs[0] * self.num_classes)
 
         # add all ensembles prediction to raw utility predictions
         for j, booster in enumerate(self.boosters):
@@ -1936,18 +1949,29 @@ class RUMBoost:
             elif "leaf_value" in root:  # leaf
                 leaf_values.append(root["leaf_value"])
                 leaf_id.append(root["leaf_index"] if "leaf_index" in root else -1)
+                gain.append(root["leaf_value"] ** 2 * root["leaf_weight"])
 
         model = booster.dump_model()
         last_tree = model["tree_info"][-1]
         split_values: List[float] = []
         leaf_values: List[float] = []
+        gain: List[float] = []
         tree_id = last_tree["tree_index"]
         leaf_id = []
         add(last_tree["tree_structure"])
 
-        booster.set_leaf_output(tree_id, leaf_id[0], -leaf_values[0])
+        if gain[0] > gain[1]:
+            leaf_values[0] = -leaf_values[0]
+            leaf_values[1] = 0
+            booster.set_leaf_output(tree_id, leaf_id[1], 0)
+            booster.set_leaf_output(tree_id, leaf_id[0], leaf_values[0])
+        else:
+            leaf_values[0] = 0
+            booster.set_leaf_output(tree_id, leaf_id[0], 0)
 
-        leaf_values[0] = -leaf_values[0]
+        # booster.set_leaf_output(tree_id, leaf_id[0], -leaf_values[0])
+
+        # leaf_values[0] = -leaf_values[0]
 
         return split_values, leaf_values
 
@@ -2025,8 +2049,12 @@ class RUMBoost:
                 indices_r = (indices[None, :] >= indices[:, None]).T
                 splits = self.split_and_leaf_values[j]["splits"]
                 leaves = self.split_and_leaf_values[j]["leaves"]
-                left_constants = splits * torch.cat((leaves, torch.zeros(1, device=self.device)))
-                right_constants = splits * torch.cat((torch.zeros(1, device=self.device), leaves))
+                left_constants = splits * torch.cat(
+                    (leaves, torch.zeros(1, device=self.device))
+                )
+                right_constants = splits * torch.cat(
+                    (torch.zeros(1, device=self.device), leaves)
+                )
                 self.split_and_leaf_values[j]["value_at_splits"] = (
                     left_constants * indices_l + right_constants * indices_r
                 ).sum(axis=1)
@@ -3044,21 +3072,28 @@ def rum_train(
         opt_mu_or_alpha_idx = None
 
     # store utility function specifications
-    rumb.utility_functions = {u: [] for u in range(rumb.num_classes)}
+    rumb.utility_functions = {}
     for j, struct in enumerate(rumb.rum_structure):
         for u in struct["utility"]:
+            if u not in rumb.utility_functions:
+                rumb.utility_functions[u] = []
             rumb.utility_functions[u].append(j)
 
-    rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
-    if rumb.max_booster_to_update < rumb.num_classes:
-        raise ValueError(
-            f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
-        )
-    min_utility = min([len(u_idx) for u_idx in rumb.utility_functions.values()])
-    if rumb.max_booster_to_update > rumb.num_classes * min_utility:
-        raise ValueError(
-            f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
-        )
+    if rumb.num_classes > 2:
+        rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
+        if rumb.max_booster_to_update < rumb.num_classes:
+            raise ValueError(
+                f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
+            )
+        min_utility = min([len(u_idx) for u_idx in rumb.utility_functions.values()])
+        if rumb.max_booster_to_update > rumb.num_classes * min_utility:
+            raise ValueError(
+                f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
+            )
+    else:
+        # if binary classification, the maximum number of boosters to update is multiplied 
+        # by 2 because it is then divided by the number of classed when lookinf dor best booster
+        rumb.max_booster_to_update = params.get("max_booster_to_update", 1) * rumb.num_classes
 
     if params.get("boost_from_parameter_space", []):
         if len(params["boost_from_parameter_space"]) != len(rumb.rum_structure):
@@ -3139,6 +3174,9 @@ def rum_train(
         rumb.split_and_leaf_values = None
         optimise_ascs = False
         rumb.asc = np.zeros(rumb.num_classes)
+
+    if rumb.num_classes == 2:
+        rumb.asc = np.zeros(1)
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -3541,6 +3579,10 @@ def rum_train(
                 ]
                 labels = rumb.labels[rumb.subsample_idx]
                 ascs = rumb.asc
+
+            if rumb.num_classes == 2:
+                raw_preds = raw_preds[:, 0]
+
             res = minimize(
                 optimise_asc,
                 ascs,
