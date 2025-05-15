@@ -2018,18 +2018,18 @@ class RUMBoost:
                     # )
 
                 indices = torch.arange(
-                    self.split_and_leaf_values[j]["splits"].shape[0] - 1,
+                    self.split_and_leaf_values[j]["splits"].shape[0],
                     device=self.device,
                 )
                 indices_l = (indices[None, :] <= indices[:, None]).T
-                indices_r = ~ indices_l
+                indices_r = (indices[None, :] >= indices[:, None]).T
                 splits = self.split_and_leaf_values[j]["splits"]
                 leaves = self.split_and_leaf_values[j]["leaves"]
-                left_constants = splits[:-1] * leaves
-                right_constants = splits[1:] * leaves
+                left_constants = splits * torch.cat((leaves, torch.zeros(1, device=self.device)))
+                right_constants = splits * torch.cat((torch.zeros(1, device=self.device), leaves))
                 self.split_and_leaf_values[j]["value_at_splits"] = (
                     left_constants * indices_l + right_constants * indices_r
-                ).sum(axis=0)
+                ).sum(axis=1)
 
                 # self.split_and_leaf_values[j]["value_at_splits"] = torch.cat(
                 #     (
@@ -2086,7 +2086,8 @@ class RUMBoost:
             constants = csts[indices]
             distances = data_t - sp[indices]
             if distances.shape[0] == self.num_obs[0]:
-                self.distances[j] = distances.cpu().numpy()
+                # self.distances[j] = distances.cpu().numpy()
+                self.distances[j] = data
             preds = constants + distances * lvs[indices]
         else:
             indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
@@ -2094,7 +2095,8 @@ class RUMBoost:
             constants = csts[indices]
             distances = data - sp[indices]
             if distances.shape[0] == self.num_obs[0]:
-                self.distances[j] = distances
+                # self.distances[j] = distances
+                self.distances[j] = data
             preds = constants + distances * (csts[indices + 1] - constants) / (
                 sp[indices + 1] - sp[indices]
             )
