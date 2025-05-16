@@ -36,7 +36,7 @@ from rumboost.ordinal import (
     optimise_thresholds_coral,
     optimise_thresholds_proportional_odds,
 )
-
+from rumboost.constant_parameter import Constant
 from rumboost.utils import optimise_asc, _check_rum_structure
 
 try:
@@ -1960,18 +1960,18 @@ class RUMBoost:
         leaf_id = []
         add(last_tree["tree_structure"])
 
-        if gain[0] > gain[1]:
-            leaf_values[0] = -leaf_values[0]
-            leaf_values[1] = 0
-            booster.set_leaf_output(tree_id, leaf_id[1], 0)
-            booster.set_leaf_output(tree_id, leaf_id[0], leaf_values[0])
-        else:
-            leaf_values[0] = 0
-            booster.set_leaf_output(tree_id, leaf_id[0], 0)
+        # if gain[0] > gain[1]:
+        #     leaf_values[0] = -leaf_values[0]
+        #     leaf_values[1] = 0
+        #     booster.set_leaf_output(tree_id, leaf_id[1], 0)
+        #     booster.set_leaf_output(tree_id, leaf_id[0], leaf_values[0])
+        # else:
+        #     leaf_values[0] = 0
+        #     booster.set_leaf_output(tree_id, leaf_id[0], 0)
 
-        # booster.set_leaf_output(tree_id, leaf_id[0], -leaf_values[0])
+        booster.set_leaf_output(tree_id, leaf_id[0], -leaf_values[0])
 
-        # leaf_values[0] = -leaf_values[0]
+        leaf_values[0] = -leaf_values[0]
 
         return split_values, leaf_values
 
@@ -3080,7 +3080,9 @@ def rum_train(
             rumb.utility_functions[u].append(j)
 
     if rumb.num_classes > 2:
-        rumb.max_booster_to_update = params.get("max_booster_to_update", rumb.num_classes)
+        rumb.max_booster_to_update = params.get(
+            "max_booster_to_update", rumb.num_classes
+        )
         if rumb.max_booster_to_update < rumb.num_classes:
             raise ValueError(
                 f"The maximum number of boosters to update must be at least equal to the number of classes ({rumb.num_classes})"
@@ -3091,9 +3093,11 @@ def rum_train(
                 f"The maximum number of boosters to update must be at most equal to the number of classes ({rumb.num_classes}) times the maximum number of boosters in the smallest utility function ({min_utility})"
             )
     else:
-        # if binary classification, the maximum number of boosters to update is multiplied 
+        # if binary classification, the maximum number of boosters to update is multiplied
         # by 2 because it is then divided by the number of classed when lookinf dor best booster
-        rumb.max_booster_to_update = params.get("max_booster_to_update", 1) * rumb.num_classes
+        rumb.max_booster_to_update = (
+            params.get("max_booster_to_update", 1) * rumb.num_classes
+        )
 
     if params.get("boost_from_parameter_space", []):
         if len(params["boost_from_parameter_space"]) != len(rumb.rum_structure):
@@ -3106,6 +3110,7 @@ def rum_train(
         optimise_ascs = (optim_interval > 0) and (
             "ordinal_logit" not in model_specification
         )
+        constant_parameters = [Constant(str(i), 0) for i in range(rumb.num_classes)]
 
         if optimise_ascs and "nested_logit" in model_specification:
             raise ValueError(
@@ -3248,6 +3253,10 @@ def rum_train(
 
     # create J boosters with corresponding params and datasets
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
+
+    # if optimise ascs start with observed market shares
+    if optimise_ascs:
+        rumb.asc = np.mean(rumb.labels[:, None] == range(rumb.asc.shape[0]), axis=0)
 
     # free datasets from memory
     if not any(rumb.boost_from_parameter_space):
