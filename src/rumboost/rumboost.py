@@ -1876,8 +1876,6 @@ class RUMBoost:
         if monotone_constraints[0] != 0:
             if self.device is not None:
                 m = torch.tensor(monotone_constraints[0]).to(self.device)
-                l_0 = l_0.cpu().numpy()
-                l_1 = l_1.cpu().numpy()
                 if torch.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
                     offset = torch.max(
                         -self.split_and_leaf_values[j]["leaves"][:index] * m
@@ -1885,22 +1883,21 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"][:index] += offset * m
                     offset = offset.cpu().numpy()
                     m_copy = m.cpu().numpy()
+                    l_0_copy = l_0.cpu().numpy()
                     self.boosters[j].set_leaf_output(
-                        self.boosters[j].num_trees() - 1, 0, l_0 + offset * m_copy
+                        self.boosters[j].num_trees() - 1, 0, l_0_copy + offset * m_copy
                     )
-                    l_0 = torch.tensor(l_0 + offset * m_copy).to(self.device)
                 if torch.any(self.split_and_leaf_values[j]["leaves"][index:] * m < 0):
                     offset = torch.max(
                         -self.split_and_leaf_values[j]["leaves"][index:] * m
                     )
                     self.split_and_leaf_values[j]["leaves"][index:] += offset * m
                     offset = offset.cpu().numpy()
-                    m = m.cpu().numpy()
+                    m_copy = m.cpu().numpy()
+                    l_1_copy = l_1.cpu().numpy()
                     self.boosters[j].set_leaf_output(
-                        self.boosters[j].num_trees() - 1, 1, l_1 + offset * m
+                        self.boosters[j].num_trees() - 1, 1, l_1_copy + offset * m_copy
                     )
-                    l_1 = torch.tensor(l_1 + offset * m).to(self.device)
-
             else:
                 m = monotone_constraints[0]
                 if np.any(self.split_and_leaf_values[j]["leaves"][:index] * m < 0):
@@ -2008,11 +2005,13 @@ class RUMBoost:
                     # check and ensure monotonicity
                     l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
-                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
-                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
-                    #     self.split_and_leaf_values[j]["constants"][index:]
-                    #     + l_0 * s,
-                    # )
+                    self.split_and_leaf_values[j]["constants"] = torch.cat(
+                        (
+                            self.split_and_leaf_values[j]["constants"][:index+1] + l_1 * s,
+                            self.split_and_leaf_values[j]["constants"][index+1:]
+                            + l_0 * s,
+                        )
+                    )
                 else:
                     index = torch.searchsorted(
                         self.split_and_leaf_values[j]["splits"], s
@@ -2028,48 +2027,28 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"] = torch.cat(
                         (
                             self.split_and_leaf_values[j]["leaves"][:index] + l_0,
-                            self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
+                            self.split_and_leaf_values[j]["leaves"][index-1:] + l_1,
                         )
                     )
                     # check and ensure monotonicity
                     l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
 
-                    # self.split_and_leaf_values[j]["constants"] = torch.cat(
-                    #     self.split_and_leaf_values[j]["constants"][:index] + l_1 * s,
-                    #     self.split_and_leaf_values[j]["constants"][index],
-                    #     self.split_and_leaf_values[j]["constants"][index:]
-                    #     + l_0 * s,
-                    # )
+                    self.split_and_leaf_values[j]["constants"] = torch.cat(
+                        (
+                            self.split_and_leaf_values[j]["constants"][:index+1] + l_1 * s,
+                            self.split_and_leaf_values[j]["constants"][index:]
+                            + l_0 * s,
+                        )
+                    )
 
-                indices = torch.arange(
-                    self.split_and_leaf_values[j]["splits"].shape[0],
-                    device=self.device,
-                )
-                indices_l = (indices[None, :] <= indices[:, None]).T
-                indices_r = (indices[None, :] >= indices[:, None]).T
-                splits = self.split_and_leaf_values[j]["splits"]
                 leaves = self.split_and_leaf_values[j]["leaves"]
-                left_constants = splits * torch.cat(
-                    (leaves, torch.zeros(1, device=self.device))
+                splits = self.split_and_leaf_values[j]["splits"]
+                all_leaves = torch.cat(
+                    (leaves[0].view(-1), leaves)
                 )
-                right_constants = splits * torch.cat(
-                    (torch.zeros(1, device=self.device), leaves)
-                )
-                self.split_and_leaf_values[j]["value_at_splits"] = (
-                    left_constants * indices_l + right_constants * indices_r
-                ).sum(axis=1)
+                constants = self.split_and_leaf_values[j]["constants"]
 
-                # self.split_and_leaf_values[j]["value_at_splits"] = torch.cat(
-                #     (
-                #         torch.zeros(1, device=self.device),
-                #         torch.cumsum(
-                #             self.split_and_leaf_values[j]["leaves"]
-                #             * torch.diff(self.split_and_leaf_values[j]["splits"]),
-                #             dim=0,
-                #         ),
-                #     ),
-                #     dim=0,
-                # ) + self.split_and_leaf_values[j]["constants"]
+                self.split_and_leaf_values[j]["value_at_splits"] = all_leaves * splits + constants
             else:
                 l_0 = leaf_values[0]
                 l_1 = leaf_values[1]
