@@ -2083,6 +2083,7 @@ class RUMBoost:
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
         csts = self.split_and_leaf_values[j]["value_at_splits"]
+        # csts = self.split_and_leaf_values[j]["constants"]
         lvs = self.split_and_leaf_values[j]["leaves"]
         if self.device is not None:
             data_t = torch.from_numpy(data).to(self.device)
@@ -2092,16 +2093,16 @@ class RUMBoost:
             indices = torch.clip(indices, 0, len(csts) - 2)
             constants = csts[indices]
             distances = data_t - sp[indices]
-            if distances.shape[0] == self.num_obs[0]:
-                # self.distances[j] = distances.cpu().numpy()
+            if data.shape[0] == self.num_obs[0]:
                 self.distances[j] = data
             preds = constants + distances * lvs[indices]
+            # preds = csts[indices] + data_t * lvs[indices]
         else:
             indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
             indices = np.clip(indices, 0, len(csts) - 2)
             constants = csts[indices]
             distances = data - sp[indices]
-            if distances.shape[0] == self.num_obs[0]:
+            if data.shape[0] == self.num_obs[0]: #to not store distances of validation set
                 # self.distances[j] = distances
                 self.distances[j] = data
             preds = constants + distances * (csts[indices + 1] - constants) / (
