@@ -36,7 +36,7 @@ from rumboost.ordinal import (
     optimise_thresholds_coral,
     optimise_thresholds_proportional_odds,
 )
-from rumboost.constant_parameter import Constant
+from rumboost.constant_parameter import Constant, compute_grad_hess
 from rumboost.utils import optimise_asc, _check_rum_structure
 
 try:
@@ -2007,8 +2007,9 @@ class RUMBoost:
 
                     self.split_and_leaf_values[j]["constants"] = torch.cat(
                         (
-                            self.split_and_leaf_values[j]["constants"][:index+1] + l_1 * s,
-                            self.split_and_leaf_values[j]["constants"][index+1:]
+                            self.split_and_leaf_values[j]["constants"][: index + 1]
+                            + l_1 * s,
+                            self.split_and_leaf_values[j]["constants"][index + 1 :]
                             + l_0 * s,
                         )
                     )
@@ -2027,7 +2028,7 @@ class RUMBoost:
                     self.split_and_leaf_values[j]["leaves"] = torch.cat(
                         (
                             self.split_and_leaf_values[j]["leaves"][:index] + l_0,
-                            self.split_and_leaf_values[j]["leaves"][index-1:] + l_1,
+                            self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
                         )
                     )
                     # check and ensure monotonicity
@@ -2035,7 +2036,8 @@ class RUMBoost:
 
                     self.split_and_leaf_values[j]["constants"] = torch.cat(
                         (
-                            self.split_and_leaf_values[j]["constants"][:index+1] + l_1 * s,
+                            self.split_and_leaf_values[j]["constants"][: index + 1]
+                            + l_1 * s,
                             self.split_and_leaf_values[j]["constants"][index:]
                             + l_0 * s,
                         )
@@ -2043,12 +2045,12 @@ class RUMBoost:
 
                 leaves = self.split_and_leaf_values[j]["leaves"]
                 splits = self.split_and_leaf_values[j]["splits"]
-                all_leaves = torch.cat(
-                    (leaves[0].view(-1), leaves)
-                )
+                all_leaves = torch.cat((leaves[0].view(-1), leaves))
                 constants = self.split_and_leaf_values[j]["constants"]
 
-                self.split_and_leaf_values[j]["value_at_splits"] = all_leaves * splits + constants
+                self.split_and_leaf_values[j]["value_at_splits"] = (
+                    all_leaves * splits + constants
+                )
             else:
                 l_0 = leaf_values[0]
                 l_1 = leaf_values[1]
@@ -2102,7 +2104,9 @@ class RUMBoost:
             indices = np.clip(indices, 0, len(csts) - 2)
             constants = csts[indices]
             distances = data - sp[indices]
-            if data.shape[0] == self.num_obs[0]: #to not store distances of validation set
+            if (
+                data.shape[0] == self.num_obs[0]
+            ):  # to not store distances of validation set
                 # self.distances[j] = distances
                 self.distances[j] = data
             preds = constants + distances * (csts[indices + 1] - constants) / (
@@ -3090,7 +3094,6 @@ def rum_train(
         optimise_ascs = (optim_interval > 0) and (
             "ordinal_logit" not in model_specification
         )
-        constant_parameters = [Constant(str(i), 0) for i in range(rumb.num_classes)]
 
         if optimise_ascs and "nested_logit" in model_specification:
             raise ValueError(
@@ -3100,8 +3103,6 @@ def rum_train(
             raise ValueError(
                 "The ASCs cannot be optimised when using cross nested logit. Please set optim_interval to 0."
             )
-
-        rumb.asc = np.zeros(rumb.num_classes)
 
         rumb.split_and_leaf_values = {}
         rumb.distances = {}
@@ -3158,10 +3159,6 @@ def rum_train(
         rumb.boost_from_parameter_space = [False] * len(rumb.rum_structure)
         rumb.split_and_leaf_values = None
         optimise_ascs = False
-        rumb.asc = np.zeros(rumb.num_classes)
-
-    if rumb.num_classes == 2:
-        rumb.asc = np.zeros(1)
 
     # check dataset and preprocess it
     if isinstance(train_set, dict):
@@ -3234,9 +3231,14 @@ def rum_train(
     # create J boosters with corresponding params and datasets
     rumb._construct_boosters(train_data_name, is_valid_contain_train, name_valid_sets)
 
-    # if optimise ascs start with observed market shares
-    if optimise_ascs:
-        rumb.asc = np.mean(rumb.labels[:, None] == range(rumb.asc.shape[0]), axis=0)
+    # ascs start with observed market shares
+    if rumb.num_classes == 2:
+        rumb.asc = np.log(np.mean(rumb.labels), axis=0)
+    elif rumb.num_classes > 2:
+        rumb.asc = np.log(
+            np.mean(rumb.labels[:, None] == range(rumb.num_classes), axis=0)
+        )
+        constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(rumb.num_classes)]
 
     # free datasets from memory
     if not any(rumb.boost_from_parameter_space):
@@ -3553,35 +3555,54 @@ def rum_train(
             rumb.thresholds = diff_to_threshold(res.x)
 
         if optimise_ascs and ((i + 1) % optim_interval == 0):
-            if rumb.device is not None:
-                raw_preds = (
-                    rumb.raw_preds.view(-1, rumb.num_obs[0])
-                    .T[rumb.subsample_idx, :]
-                    .cpu()
-                    .numpy()
-                )
-                labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
-                ascs = rumb.asc.cpu().numpy()
-            else:
-                raw_preds = rumb.raw_preds.reshape((rumb.num_obs[0], -1), order="F")[
-                    rumb.subsample_idx, :
-                ]
-                labels = rumb.labels[rumb.subsample_idx]
-                ascs = rumb.asc
+            # if rumb.device is not None:
+            #     raw_preds = (
+            #         rumb.raw_preds.view(-1, rumb.num_obs[0])
+            #         .T[rumb.subsample_idx, :]
+            #         .cpu()
+            #         .numpy()
+            #     )
+            #     labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
+            #     ascs = rumb.asc.cpu().numpy()
+            # else:
+            #     raw_preds = rumb.raw_preds.reshape((rumb.num_obs[0], -1), order="F")[
+            #         rumb.subsample_idx, :
+            #     ]
+            #     labels = rumb.labels[rumb.subsample_idx]
+            #     ascs = rumb.asc
 
-            if rumb.num_classes == 2:
-                raw_preds = raw_preds[:, 0]
+            # if rumb.num_classes == 2:
+            #     raw_preds = raw_preds[:, 0]
 
-            res = minimize(
-                optimise_asc,
-                ascs,
-                args=(raw_preds, labels),
-                method="SLSQP",
+            # res = minimize(
+            #     optimise_asc,
+            #     ascs,
+            #     args=(raw_preds, labels),
+            #     method="SLSQP",
+            # )
+            # if rumb.device is not None:
+            #     rumb.asc = torch.from_numpy(res.x).type(torch.double).to(rumb.device)
+            # else:
+            #     rumb.asc = res.x
+
+            grad, hess = compute_grad_hess(
+                rumb._preds,
+                rumb.device,
+                rumb.num_classes,
+                rumb.labels[rumb.subsample_idx],
+                rumb.labels_j[rumb.subsample_idx],
             )
+
+            for j, cst in enumerate(constant_parameters):
+                cst.boost(grad[:, j], hess[:, j])
             if rumb.device is not None:
-                rumb.asc = torch.from_numpy(res.x).type(torch.double).to(rumb.device)
+                rumb.asc = (
+                    torch.from_numpy(np.array([c() for c in constant_parameters]))
+                    .type(torch.double)
+                    .to(rumb.device)
+                )
             else:
-                rumb.asc = res.x
+                rumb.asc = np.array([c() for c in constant_parameters])
 
         # reshuffle indices
         if subsample_freq > 0 and (i + 1) % subsample_freq == 0:
