@@ -1973,8 +1973,6 @@ class RUMBoost:
 
         for s in split_values:
             if self.device is not None:
-                grad = torch.tensor([grad[:, self.rum_structure[j]["utility"][0]].sum()]).to(self.device)
-                hess = torch.tensor([hess[:, self.rum_structure[j]["utility"][0]].sum()]).to(self.device)
                 s = torch.tensor([s]).to(self.device)
                 l_0 = torch.tensor([leaf_values[0]]).to(self.device)
                 l_1 = torch.tensor([leaf_values[1]]).to(self.device)
@@ -2051,14 +2049,27 @@ class RUMBoost:
                 ):  # if the split value exists already
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["leaves"][:index] += l_0
+                    # check and ensure monotonicity if needed
+                    l_0 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][:index], l_0, j, right=False)
+
                     self.split_and_leaf_values[j]["leaves"][index:] += l_1
-                    # check and ensure monotonicity
-                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    # check and ensure monotonicity if needed
+                    l_1 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][index:], l_1, j)
+
+                    self.split_and_leaf_values[j]["constants"] = np.concatenate(
+                        (
+                            self.split_and_leaf_values[j]["constants"][: index + 1]
+                            + l_1 * s, 
+                            self.split_and_leaf_values[j]["constants"][index + 1 :]
+                            + l_0 * s,
+                        )
+                    )
                 else:
                     index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
                     self.split_and_leaf_values[j]["splits"] = np.insert(
                         self.split_and_leaf_values[j]["splits"], index, s
                     )
+
                     self.split_and_leaf_values[j]["leaves"] = np.concatenate(
                         (
                             self.split_and_leaf_values[j]["leaves"][:index] + l_0,
@@ -2066,18 +2077,32 @@ class RUMBoost:
                         )
                     )
                     # check and ensure monotonicity
-                    l_0, l_1 = self._check_leaves_monotonicity(j, index, l_0, l_1)
+                    l_0 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][:index], l_0, j, right=False)
+                    l_1 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][index-1:], l_1, j)
 
-                self.split_and_leaf_values[j]["constants"] = np.cumsum(
-                    self.split_and_leaf_values[j]["leaves"]
-                    * np.diff(self.split_and_leaf_values[j]["splits"])
+                    self.split_and_leaf_values[j]["constants"] = np.concatenate(
+                        (
+                            self.split_and_leaf_values[j]["constants"][: index + 1]
+                            + l_1 * s,
+                            self.split_and_leaf_values[j]["constants"][index:]
+                            + l_0 * s,
+                        )
+                    )
+
+                leaves = self.split_and_leaf_values[j]["leaves"]
+                splits = self.split_and_leaf_values[j]["splits"]
+                all_leaves = np.concatenate((leaves[0].reshape(-1), leaves))
+                constants = self.split_and_leaf_values[j]["constants"]
+
+                self.split_and_leaf_values[j]["value_at_splits"] = (
+                    all_leaves * splits + constants
                 )
+
 
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
         sp = self.split_and_leaf_values[j]["splits"]
         csts = self.split_and_leaf_values[j]["value_at_splits"]
-        # csts = self.split_and_leaf_values[j]["constants"]
         lvs = self.split_and_leaf_values[j]["leaves"]
         if self.device is not None:
             data_t = torch.from_numpy(data).to(self.device)
@@ -2087,23 +2112,19 @@ class RUMBoost:
             indices = torch.clip(indices, 0, len(csts) - 2)
             constants = csts[indices]
             distances = data_t - sp[indices]
+            # to not store distances of validation set
             if data.shape[0] == self.num_obs[0]:
                 self.distances[j] = data
             preds = constants + distances * lvs[indices]
-            # preds = csts[indices] + data_t * lvs[indices]
         else:
             indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
             indices = np.clip(indices, 0, len(csts) - 2)
             constants = csts[indices]
             distances = data - sp[indices]
-            if (
-                data.shape[0] == self.num_obs[0]
-            ):  # to not store distances of validation set
-                # self.distances[j] = distances
+            # to not store distances of validation set
+            if (data.shape[0] == self.num_obs[0]): 
                 self.distances[j] = data
-            preds = constants + distances * (csts[indices + 1] - constants) / (
-                sp[indices + 1] - sp[indices]
-            )
+            preds = constants + distances * lvs[indices]
 
         return preds
 
@@ -3228,14 +3249,14 @@ def rum_train(
         rumb.asc = np.log(np.mean(rumb.labels), axis=0)
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
         Warning(f"Assuming the learning rate is {lr} for all boosters")
-        constant_parameters = [Constant(str(i), rumb.asc[i], learning_rate=lr) for i in range(1)]
+        constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(1)]
     elif rumb.num_classes > 2:
         rumb.asc = np.log(
             np.mean(rumb.labels[:, None] == range(rumb.num_classes), axis=0)
         )
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
         Warning(f"Assuming the learning rate is {lr} for all boosters")
-        constant_parameters = [Constant(str(i), rumb.asc[i], learning_rate=lr) for i in range(rumb.num_classes)]
+        constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(rumb.num_classes)]
 
     # free datasets from memory
     if not any(rumb.boost_from_parameter_space):
