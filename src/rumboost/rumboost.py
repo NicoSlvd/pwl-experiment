@@ -1879,8 +1879,8 @@ class RUMBoost:
                     offset = torch.min(
                         current_leaves * m
                     )
-                    current_leaves += offset
-                    new_l = l + offset
+                    current_leaves -= offset * m
+                    new_l = l - offset * m
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, int(right), new_l.cpu().numpy()
                     )
@@ -1888,8 +1888,8 @@ class RUMBoost:
                 m = monotone_constraints[0]
                 if (current_leaves * m < 0).any():
                     offset = np.min(current_leaves * m)
-                    current_leaves += offset * m
-                    new_l = l + offset
+                    current_leaves -= offset * m
+                    new_l = l - offset * m
                     self.boosters[j].set_leaf_output(
                         self.boosters[j].num_trees() - 1, int(right), new_l
                     )
