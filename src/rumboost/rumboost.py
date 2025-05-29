@@ -38,7 +38,8 @@ from rumboost.ordinal import (
     optimise_thresholds_proportional_odds,
 )
 from rumboost.constant_parameter import Constant, compute_grad_hess
-from rumboost.utils import optimise_asc, _check_rum_structure
+from rumboost.utils import optimise_asc, _check_rum_structure, _load_arrays_and_tensors
+from rumboost.linear_trees import LinearTree
 
 try:
     import torch
@@ -180,41 +181,7 @@ class RUMBoost:
             with open(model_file, "r") as file:
                 self._from_dict(json.load(file))
 
-        if "device" in self.__dict__ and self.device is not None:
-            self.device = torch.device(self.device)
-
-        if self.alphas is not None:  # numpy.ndarray so need to specify not None
-            if self.device is not None:
-                self.alphas = torch.tensor(self.alphas, device=self.device)
-            else:
-                self.alphas = np.array(self.alphas)
-        if self.mu is not None:  # numpy.ndarray so need to specify not None
-            if self.device is not None:
-                self.mu = torch.tensor(self.mu, device=self.device)
-            else:
-                self.mu = np.array(self.mu)
-        if self.thresholds is not None:  # numpy.ndarray so need to specify not None
-            if self.device is not None:
-                self.thresholds = torch.tensor(self.thresholds, device=self.device)
-            else:
-                self.thresholds = np.array(self.thresholds)
-        if self.asc is not None:  # numpy.ndarray so need to specify not None
-            if self.device is not None:
-                self.asc = torch.tensor(self.asc, device=self.device)
-            else:
-                self.asc = np.array(self.asc)
-
-        if isinstance(self.split_and_leaf_values, dict):
-            if self.device is not None:
-                self.split_and_leaf_values = {
-                    k: {c: torch.tensor(v[c], device=self.device) for c in v.keys()}
-                    for k, v in self.split_and_leaf_values.items()
-                }
-            else:
-                self.split_and_leaf_values = {
-                    k: {c: np.array(v[c]) for c in v.keys()}
-                    for k, v in self.split_and_leaf_values.items()
-                }
+        _load_arrays_and_tensors(self)
 
     def multiply_grad_hess_by_data(func):
         """
@@ -227,10 +194,10 @@ class RUMBoost:
             j = self._current_j
 
             grad, hess = func(self, preds, data)
-            if self.boost_from_parameter_space[j]:
-                x = self.distances[j].astype(float)
-                grad = grad * x
-                hess = hess * x**2
+            # if self.boost_from_parameter_space[j]:
+            #     x = self.distances[j].astype(float)
+            #     grad = grad * x
+            #     hess = hess * x**2
             return grad, hess
 
         return wrapper
@@ -1704,13 +1671,28 @@ class RUMBoost:
             try:
                 params = copy.deepcopy(struct["boosting_params"])
                 if self.boost_from_parameter_space[j]:
-                    params["monotone_constraints"] = [0] * len(
-                        struct["variables"]
-                    )  # in case of boosting from parameter, monotonicity is removed
-                booster = Booster(
-                    params=params,
-                    train_set=self.train_set[j],
-                )
+                    if "endogenous_variable" not in struct.keys():
+                        self.train_set[j].construct()
+                        booster = LinearTree(
+                            self.train_set[j].get_data().reshape(-1),
+                            monotonic_constraint=params["monotone_constraints"][0],
+                            max_bins=params.get("max_bins", 255),
+                        )
+                    else:
+                        params["monotone_constraints"] = [0] * len(
+                            struct["variables"]
+                        )  # in case of boosting from parameter, monotonicity is removed
+
+                        booster = Booster(
+                            params=params,
+                            train_set=self.train_set[j],
+                        )
+                else:
+                    booster = Booster(
+                        params=params,
+                        train_set=self.train_set[j],
+                    )
+
                 if self.device is not None:
                     idx_ranges = [
                         struct["utility"][0] * self.num_obs[0],
@@ -1897,13 +1879,13 @@ class RUMBoost:
             if self.device is not None:
                 m = torch.tensor(monotone_constraints[0]).to(self.device)
                 if (current_leaves * m < 0).any():
-                    offset = torch.min(
-                        current_leaves * m
-                    )
+                    offset = torch.min(current_leaves * m)
                     current_leaves -= offset * m
                     new_l = l - offset * m
                     self.boosters[j].set_leaf_output(
-                        self.boosters[j].num_trees() - 1, int(right), new_l.cpu().numpy()
+                        self.boosters[j].num_trees() - 1,
+                        int(right),
+                        new_l.cpu().numpy(),
                     )
             else:
                 m = monotone_constraints[0]
@@ -1981,136 +1963,181 @@ class RUMBoost:
         booster : Booster
             The booster to gather linear constants from.
         """
+        booster._update_linear_constants()
+
+        if self.device is not None:
+            salv = booster.split_and_leaf_values
+            self.split_and_leaf_values[j]["constants"] = torch.from_numpy(
+                salv["constants"]
+            ).to(self.device)
+            self.split_and_leaf_values[j]["splits"] = torch.from_numpy(
+                salv["splits"]
+            ).to(self.device)
+            self.split_and_leaf_values[j]["leaves"] = torch.from_numpy(
+                salv["leaves"]
+            ).to(self.device)
+            self.split_and_leaf_values[j]["value_at_splits"] = torch.from_numpy(
+                salv["value_at_splits"]
+            ).to(self.device)
+        else:
+            self.split_and_leaf_values[j] = copy.deepcopy(booster.split_and_leaf_values)
+
         # only implemented for a max depth of 1 so one split value and two leaf values
-        split_values, leaf_values = self._gather_split_info(booster)
+        # split_values, leaf_values = self._gather_split_info(booster)
 
-        for s in split_values:
-            if self.device is not None:
-                s = torch.tensor([s]).to(self.device)
-                l_0 = torch.tensor([leaf_values[0]]).to(self.device)
-                l_1 = torch.tensor([leaf_values[1]]).to(self.device)
-                if (
-                    s in self.split_and_leaf_values[j]["splits"]
-                ):  # if the split value exists already
-                    index = torch.searchsorted(
-                        self.split_and_leaf_values[j]["splits"], s
-                    )
-                    index = index.item()
+        # for s in split_values:
+        #     if self.device is not None:
+        #         s = torch.tensor([s]).to(self.device)
+        #         l_0 = torch.tensor([leaf_values[0]]).to(self.device)
+        #         l_1 = torch.tensor([leaf_values[1]]).to(self.device)
+        #         if (
+        #             s in self.split_and_leaf_values[j]["splits"]
+        #         ):  # if the split value exists already
+        #             index = torch.searchsorted(
+        #                 self.split_and_leaf_values[j]["splits"], s
+        #             )
+        #             index = index.item()
 
-                    self.split_and_leaf_values[j]["leaves"][:index] += l_0
-                    # check and ensure monotonicity if needed
-                    l_0 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][:index], l_0, j, right=False)
+        #             self.split_and_leaf_values[j]["leaves"][:index] += l_0
+        #             # check and ensure monotonicity if needed
+        #             l_0 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][:index],
+        #                 l_0,
+        #                 j,
+        #                 right=False,
+        #             )
 
-                    self.split_and_leaf_values[j]["leaves"][index:] += l_1
-                    # check and ensure monotonicity if needed
-                    l_1 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][index:], l_1, j)
+        #             self.split_and_leaf_values[j]["leaves"][index:] += l_1
+        #             # check and ensure monotonicity if needed
+        #             l_1 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][index:], l_1, j
+        #             )
 
-                    self.split_and_leaf_values[j]["constants"] = torch.cat(
-                        (
-                            self.split_and_leaf_values[j]["constants"][: index + 1]
-                            + l_1 * s, 
-                            self.split_and_leaf_values[j]["constants"][index + 1 :]
-                            + l_0 * s,
-                        )
-                    )
-                else:
-                    index = torch.searchsorted(
-                        self.split_and_leaf_values[j]["splits"], s
-                    )
-                    index = index.item()
-                    self.split_and_leaf_values[j]["splits"] = torch.cat(
-                        (
-                            self.split_and_leaf_values[j]["splits"][:index],
-                            s,
-                            self.split_and_leaf_values[j]["splits"][index:],
-                        )
-                    )
+        #             self.split_and_leaf_values[j]["constants"] = torch.cat(
+        #                 (
+        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
+        #                     + l_1 * s,
+        #                     self.split_and_leaf_values[j]["constants"][index + 1 :]
+        #                     + l_0 * s,
+        #                 )
+        #             )
+        #         else:
+        #             index = torch.searchsorted(
+        #                 self.split_and_leaf_values[j]["splits"], s
+        #             )
+        #             index = index.item()
+        #             self.split_and_leaf_values[j]["splits"] = torch.cat(
+        #                 (
+        #                     self.split_and_leaf_values[j]["splits"][:index],
+        #                     s,
+        #                     self.split_and_leaf_values[j]["splits"][index:],
+        #                 )
+        #             )
 
+        #             self.split_and_leaf_values[j]["leaves"] = torch.cat(
+        #                 (
+        #                     self.split_and_leaf_values[j]["leaves"][:index] + l_0,
+        #                     self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
+        #                 )
+        #             )
+        #             # check and ensure monotonicity
+        #             l_0 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][:index],
+        #                 l_0,
+        #                 j,
+        #                 right=False,
+        #             )
+        #             l_1 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][index - 1 :], l_1, j
+        #             )
 
-                    self.split_and_leaf_values[j]["leaves"] = torch.cat(
-                        (
-                            self.split_and_leaf_values[j]["leaves"][:index] + l_0,
-                            self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
-                        )
-                    )
-                    # check and ensure monotonicity
-                    l_0 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][:index], l_0, j, right=False)
-                    l_1 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][index-1:], l_1, j)
+        #             self.split_and_leaf_values[j]["constants"] = torch.cat(
+        #                 (
+        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
+        #                     + l_1 * s,
+        #                     self.split_and_leaf_values[j]["constants"][index:]
+        #                     + l_0 * s,
+        #                 )
+        #             )
 
-                    self.split_and_leaf_values[j]["constants"] = torch.cat(
-                        (
-                            self.split_and_leaf_values[j]["constants"][: index + 1]
-                            + l_1 * s,
-                            self.split_and_leaf_values[j]["constants"][index:]
-                            + l_0 * s,
-                        )
-                    )
+        #         leaves = self.split_and_leaf_values[j]["leaves"]
+        #         splits = self.split_and_leaf_values[j]["splits"]
+        #         all_leaves = torch.cat((leaves[0].view(-1), leaves))
+        #         constants = self.split_and_leaf_values[j]["constants"]
 
-                leaves = self.split_and_leaf_values[j]["leaves"]
-                splits = self.split_and_leaf_values[j]["splits"]
-                all_leaves = torch.cat((leaves[0].view(-1), leaves))
-                constants = self.split_and_leaf_values[j]["constants"]
+        #         self.split_and_leaf_values[j]["value_at_splits"] = (
+        #             all_leaves * splits + constants
+        #         )
+        #     else:
+        #         l_0 = leaf_values[0]
+        #         l_1 = leaf_values[1]
+        #         if (
+        #             s in self.split_and_leaf_values[j]["splits"]
+        #         ):  # if the split value exists already
+        #             index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
+        #             self.split_and_leaf_values[j]["leaves"][:index] += l_0
+        #             # check and ensure monotonicity if needed
+        #             l_0 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][:index],
+        #                 l_0,
+        #                 j,
+        #                 right=False,
+        #             )
 
-                self.split_and_leaf_values[j]["value_at_splits"] = (
-                    all_leaves * splits + constants
-                )
-            else:
-                l_0 = leaf_values[0]
-                l_1 = leaf_values[1]
-                if (
-                    s in self.split_and_leaf_values[j]["splits"]
-                ):  # if the split value exists already
-                    index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
-                    self.split_and_leaf_values[j]["leaves"][:index] += l_0
-                    # check and ensure monotonicity if needed
-                    l_0 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][:index], l_0, j, right=False)
+        #             self.split_and_leaf_values[j]["leaves"][index:] += l_1
+        #             # check and ensure monotonicity if needed
+        #             l_1 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][index:], l_1, j
+        #             )
 
-                    self.split_and_leaf_values[j]["leaves"][index:] += l_1
-                    # check and ensure monotonicity if needed
-                    l_1 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][index:], l_1, j)
+        #             self.split_and_leaf_values[j]["constants"] = np.concatenate(
+        #                 (
+        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
+        #                     + l_1 * s,
+        #                     self.split_and_leaf_values[j]["constants"][index + 1 :]
+        #                     + l_0 * s,
+        #                 )
+        #             )
+        #         else:
+        #             index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
+        #             self.split_and_leaf_values[j]["splits"] = np.insert(
+        #                 self.split_and_leaf_values[j]["splits"], index, s
+        #             )
 
-                    self.split_and_leaf_values[j]["constants"] = np.concatenate(
-                        (
-                            self.split_and_leaf_values[j]["constants"][: index + 1]
-                            + l_1 * s, 
-                            self.split_and_leaf_values[j]["constants"][index + 1 :]
-                            + l_0 * s,
-                        )
-                    )
-                else:
-                    index = np.searchsorted(self.split_and_leaf_values[j]["splits"], s)
-                    self.split_and_leaf_values[j]["splits"] = np.insert(
-                        self.split_and_leaf_values[j]["splits"], index, s
-                    )
+        #             self.split_and_leaf_values[j]["leaves"] = np.concatenate(
+        #                 (
+        #                     self.split_and_leaf_values[j]["leaves"][:index] + l_0,
+        #                     self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
+        #                 )
+        #             )
+        #             # check and ensure monotonicity
+        #             l_0 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][:index],
+        #                 l_0,
+        #                 j,
+        #                 right=False,
+        #             )
+        #             l_1 = self._check_leaves_monotonicity(
+        #                 self.split_and_leaf_values[j]["leaves"][index - 1 :], l_1, j
+        #             )
 
-                    self.split_and_leaf_values[j]["leaves"] = np.concatenate(
-                        (
-                            self.split_and_leaf_values[j]["leaves"][:index] + l_0,
-                            self.split_and_leaf_values[j]["leaves"][index - 1 :] + l_1,
-                        )
-                    )
-                    # check and ensure monotonicity
-                    l_0 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][:index], l_0, j, right=False)
-                    l_1 = self._check_leaves_monotonicity(self.split_and_leaf_values[j]["leaves"][index-1:], l_1, j)
+        #             self.split_and_leaf_values[j]["constants"] = np.concatenate(
+        #                 (
+        #                     self.split_and_leaf_values[j]["constants"][: index + 1]
+        #                     + l_1 * s,
+        #                     self.split_and_leaf_values[j]["constants"][index:]
+        #                     + l_0 * s,
+        #                 )
+        #             )
 
-                    self.split_and_leaf_values[j]["constants"] = np.concatenate(
-                        (
-                            self.split_and_leaf_values[j]["constants"][: index + 1]
-                            + l_1 * s,
-                            self.split_and_leaf_values[j]["constants"][index:]
-                            + l_0 * s,
-                        )
-                    )
+        #         leaves = self.split_and_leaf_values[j]["leaves"]
+        #         splits = self.split_and_leaf_values[j]["splits"]
+        #         all_leaves = np.concatenate((leaves[0].reshape(-1), leaves))
+        #         constants = self.split_and_leaf_values[j]["constants"]
 
-                leaves = self.split_and_leaf_values[j]["leaves"]
-                splits = self.split_and_leaf_values[j]["splits"]
-                all_leaves = np.concatenate((leaves[0].reshape(-1), leaves))
-                constants = self.split_and_leaf_values[j]["constants"]
-
-                self.split_and_leaf_values[j]["value_at_splits"] = (
-                    all_leaves * splits + constants
-                )
-
+        #         self.split_and_leaf_values[j]["value_at_splits"] = (
+        #             all_leaves * splits + constants
+        #         )
 
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
@@ -2135,7 +2162,7 @@ class RUMBoost:
             constants = csts[indices]
             distances = data - sp[indices]
             # to not store distances of validation set
-            if (data.shape[0] == self.num_obs[0]): 
+            if data.shape[0] == self.num_obs[0]:
                 self.distances[j] = data
             preds = constants + distances * lvs[indices]
 
@@ -3163,7 +3190,7 @@ def rum_train(
                     # default regularisation on the hessian because
                     # the sum of hessian can be 0 in the parameter space.
                     if "lambda_l2" not in struct["boosting_params"]:
-                        struct["boosting_params"]["lambda_l2"] = 0 
+                        struct["boosting_params"]["lambda_l2"] = 0
                     if (
                         "max_depth" in struct["boosting_params"]
                         and struct["boosting_params"]["max_depth"] > 1
@@ -3269,11 +3296,13 @@ def rum_train(
         )
         lr = rumb.rum_structure[0]["boosting_params"]["learning_rate"]
         warnings.warn(f"Assuming the learning rate is {lr} for all boosters")
-        constant_parameters = [Constant(str(i), rumb.asc[i]) for i in range(rumb.num_classes)]
+        constant_parameters = [
+            Constant(str(i), rumb.asc[i]) for i in range(rumb.num_classes)
+        ]
     elif rumb.num_classes == 1 and not rumb.ord_model:
         rumb.asc = np.mean(rumb.labels, axis=0).reshape(1)
         constant_parameters = [Constant("0", rumb.asc[0])]
-    else: # rumb.num_classes == 1 and rumb.ord_model
+    else:  # rumb.num_classes == 1 and rumb.ord_model
         rumb.asc = np.array([0.0])  # for ordinal logit, the asc is not used
 
     # free datasets from memory
@@ -3591,42 +3620,46 @@ def rum_train(
             rumb.thresholds = diff_to_threshold(res.x)
 
         if optimise_ascs and ((i + 1) % optim_interval == 0):
-        #     if rumb.device is not None:
-        #         raw_preds = (
-        #             rumb.raw_preds.view(-1, rumb.num_obs[0])
-        #             .T[rumb.subsample_idx, :]
-        #             .cpu()
-        #             .numpy()
-        #         )
-        #         labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
-        #         ascs = rumb.asc.cpu().numpy()
-        #     else:
-        #         raw_preds = rumb.raw_preds.reshape((rumb.num_obs[0], -1), order="F")[
-        #             rumb.subsample_idx, :
-        #         ]
-        #         labels = rumb.labels[rumb.subsample_idx]
-        #         ascs = rumb.asc
+            #     if rumb.device is not None:
+            #         raw_preds = (
+            #             rumb.raw_preds.view(-1, rumb.num_obs[0])
+            #             .T[rumb.subsample_idx, :]
+            #             .cpu()
+            #             .numpy()
+            #         )
+            #         labels = rumb.labels[rumb.subsample_idx].cpu().numpy()
+            #         ascs = rumb.asc.cpu().numpy()
+            #     else:
+            #         raw_preds = rumb.raw_preds.reshape((rumb.num_obs[0], -1), order="F")[
+            #             rumb.subsample_idx, :
+            #         ]
+            #         labels = rumb.labels[rumb.subsample_idx]
+            #         ascs = rumb.asc
 
-        #     if rumb.num_classes == 2:
-        #         raw_preds = raw_preds[:, 0]
+            #     if rumb.num_classes == 2:
+            #         raw_preds = raw_preds[:, 0]
 
-        #     res = minimize(
-        #         optimise_asc,
-        #         ascs,
-        #         args=(raw_preds, labels),
-        #         method="SLSQP",
-        #     )
-        #     if rumb.device is not None:
-        #         rumb.asc = torch.from_numpy(res.x).type(torch.double).to(rumb.device)
-        #     else:
-        #         rumb.asc = res.x
+            #     res = minimize(
+            #         optimise_asc,
+            #         ascs,
+            #         args=(raw_preds, labels),
+            #         method="SLSQP",
+            #     )
+            #     if rumb.device is not None:
+            #         rumb.asc = torch.from_numpy(res.x).type(torch.double).to(rumb.device)
+            #     else:
+            #         rumb.asc = res.x
 
             grad, hess = compute_grad_hess(
                 rumb._preds,
                 rumb.device,
                 rumb.num_classes,
                 rumb.labels[rumb.subsample_idx],
-                rumb.labels_j[rumb.subsample_idx] if rumb.labels_j is not None else None,
+                (
+                    rumb.labels_j[rumb.subsample_idx]
+                    if rumb.labels_j is not None
+                    else None
+                ),
             )
 
             for j, cst in enumerate(constant_parameters):
