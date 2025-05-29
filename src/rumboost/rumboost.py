@@ -1281,7 +1281,7 @@ class RUMBoost:
                         raw_preds[
                             self.booster_valid_idx[j][0] : self.booster_valid_idx[j][1]
                         ] += self._linear_predict(
-                            j, self.valid_sets[data_idx - 1][j].data.reshape(-1)
+                            j, data_idx
                         )
                     elif "endogenous_variable" in self.rum_structure[j].keys():
                         raw_preds[
@@ -1365,7 +1365,7 @@ class RUMBoost:
                     and "endogenous_variable" not in self.rum_structure[j].keys()
                 ):
                     raw_preds[self.booster_valid_idx[j]] += self._linear_predict(
-                        j, self.valid_sets[data_idx - 1][j].data.reshape(-1)
+                        j, data_idx
                     )
                 elif "endogenous_variable" in self.rum_structure[j].keys():
                     raw_preds[self.booster_valid_idx[j]] += (
@@ -1677,6 +1677,7 @@ class RUMBoost:
                             self.train_set[j].get_data().reshape(-1),
                             monotonic_constraint=params["monotone_constraints"][0],
                             max_bins=params.get("max_bins", 255),
+                            learning_rate=params.get("learning_rate", 0.1)
                         )
                     else:
                         params["monotone_constraints"] = [0] * len(
@@ -1801,7 +1802,7 @@ class RUMBoost:
                 if j in best_boosters:
                     self._update_linear_constants(j, booster)
                 current_preds = self._linear_predict(
-                    j, self.train_set[j].data.reshape(-1)
+                    j, 0
                 )
             elif "endogenous_variable" in self.rum_structure[j].keys():
                 current_preds = (
@@ -1967,9 +1968,6 @@ class RUMBoost:
 
         if self.device is not None:
             salv = booster.split_and_leaf_values
-            self.split_and_leaf_values[j]["constants"] = torch.from_numpy(
-                salv["constants"]
-            ).to(self.device)
             self.split_and_leaf_values[j]["splits"] = torch.from_numpy(
                 salv["splits"]
             ).to(self.device)
@@ -2141,32 +2139,16 @@ class RUMBoost:
 
     def _linear_predict(self, j, data):
         """Predict the linear part of the utility function."""
-        sp = self.split_and_leaf_values[j]["splits"]
-        csts = self.split_and_leaf_values[j]["value_at_splits"]
-        lvs = self.split_and_leaf_values[j]["leaves"]
-        if self.device is not None:
-            data_t = torch.from_numpy(data).to(self.device)
-            indices = (
-                torch.searchsorted(sp, data_t) - 1
-            )  # need i-1 to get the correct index
-            indices = torch.clip(indices, 0, len(csts) - 2)
-            constants = csts[indices]
-            distances = data_t - sp[indices]
-            # to not store distances of validation set
-            if data.shape[0] == self.num_obs[0]:
-                self.distances[j] = data
-            preds = constants + distances * lvs[indices]
+        if isinstance(data, int):
+            raw_preds = self.boosters[j]._inner_predict(data)
         else:
-            indices = np.searchsorted(sp, data) - 1  # need i-1 to get the correct index
-            indices = np.clip(indices, 0, len(csts) - 2)
-            constants = csts[indices]
-            distances = data - sp[indices]
-            # to not store distances of validation set
-            if data.shape[0] == self.num_obs[0]:
-                self.distances[j] = data
-            preds = constants + distances * lvs[indices]
+            raw_preds = self.boosters[j].predict(data)
 
-        return preds
+        if self.device:
+            raw_preds = torch.from_numpy(raw_preds).to(self.device)
+
+        return raw_preds
+
 
     def _compute_grads(self, preds, labels_j):
         """Compute the gradients of the utility function."""
@@ -2286,7 +2268,6 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].cpu().numpy().tolist(),
                         "leaves": v["leaves"].cpu().numpy().tolist(),
-                        "constants": v["constants"].cpu().numpy().tolist(),
                         "value_at_split": v["value_at_split"].cpu().numpy().tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
@@ -2350,7 +2331,6 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].tolist(),
                         "leaves": v["leaves"].tolist(),
-                        "constants": v["constants"].tolist(),
                         "value_at_split": v["value_at_split"].tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
@@ -3203,7 +3183,6 @@ def rum_train(
                     data = train_set.get_data()[feature]
                     rumb.split_and_leaf_values[j] = {
                         "splits": np.array([data.min(), data.max()]),
-                        "constants": np.array([0.0, 0.0]),
                         "leaves": np.array([0.0]),
                         "value_at_splits": np.array([0.0, 0.0]),
                     }
