@@ -1676,8 +1676,16 @@ class RUMBoost:
                         booster = LinearTree(
                             self.train_set[j].get_data().reshape(-1),
                             monotonic_constraint=params["monotone_constraints"][0],
-                            max_bins=params.get("max_bins", 255),
-                            learning_rate=params.get("learning_rate", 0.1)
+                            max_bin=params.get("max_bin", 255),
+                            learning_rate=params.get("learning_rate", 0.1),
+                            lambda_l1=params.get("lambda_l1", 0),
+                            lambda_l2=params.get("lambda_l2", 0),
+                            bagging_fraction=params.get("bagging_fraction", 1),
+                            bagging_freq=params.get("bagging_freq", 0),
+                            min_data_in_leaf=params.get("min_data_in_leaf", 20),
+                            min_sum_hessian_in_leaf=params.get("min_sum_hessian_in_leaf", 1e-3),
+                            min_gain_to_split=params.get("min_gain_to_split", 0),
+                            min_data_in_bin = params.get("min_data_in_bin", 3)
                         )
                     else:
                         params["monotone_constraints"] = [0] * len(
@@ -2268,7 +2276,7 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].cpu().numpy().tolist(),
                         "leaves": v["leaves"].cpu().numpy().tolist(),
-                        "value_at_split": v["value_at_split"].cpu().numpy().tolist(),
+                        "value_at_splits": v["value_at_splits"].cpu().numpy().tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
                 }
@@ -2331,7 +2339,7 @@ class RUMBoost:
                     k: {
                         "splits": v["splits"].tolist(),
                         "leaves": v["leaves"].tolist(),
-                        "value_at_split": v["value_at_split"].tolist(),
+                        "value_at_splits": v["value_at_splits"].tolist(),
                     }
                     for k, v in self.split_and_leaf_values.items()
                 }

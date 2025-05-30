@@ -48,13 +48,11 @@ class RUMBoost:
             [len(s) for s in kwargs.get("structure").values()]
         ) * kwargs.get("num_classes")
 
-        general_params["max_booster_to_update"] = num_boosters_per_util
+        general_params["max_booster_to_update"] = kwargs.get("num_classes") 
         general_params["boost_from_parameter_space"] = self.boost_from_parameter_space
         general_params["optim_interval"] = 0
 
-        lr = kwargs.get("args").learning_rate / num_boosters_per_util
-        if kwargs.get("args").model_type != "constant":
-            lr = lr 
+        lr = kwargs.get("args").learning_rate
 
         # add hyperparameters
         hyperparameters = {

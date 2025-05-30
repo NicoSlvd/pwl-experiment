@@ -1,8 +1,8 @@
 from main import main
 
-for model_type in ["linear", "cubic", "constant_linear", "constant_cubic"]:
-    for monotone in [True, False]:
-        for dataset in ["LPMC", "SwissMetro"]:
+for dataset in ["SwissMetro", "LPMC"]:
+    for model_type in ["linear", "cubic", "constant_linear", "constant_cubic"]:
+        for monotone in [True, False]:
             for model in ["RUMBoost", "APLR"]:
                 if model == "APLR" and model_type != "linear":
                     continue
