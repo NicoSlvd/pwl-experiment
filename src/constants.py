@@ -33,6 +33,7 @@ lpmc_bin_vars = [
     "fueltype_Diesel",
     "fueltype_Hybrid",
     "fueltype_Petrol",
+    "congestion_charge",
 ]
 
 lpmc_cont_vars = [
@@ -52,7 +53,6 @@ lpmc_cont_vars = [
     "cost_transit",
     "dur_driving",
     "cost_driving_fuel",
-    "congestion_charge",
     "driving_traffic_percent",
 ]
 

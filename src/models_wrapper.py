@@ -50,7 +50,7 @@ class RUMBoost:
 
         general_params["max_booster_to_update"] = kwargs.get("num_classes") 
         general_params["boost_from_parameter_space"] = self.boost_from_parameter_space
-        general_params["optim_interval"] = 0
+        general_params["optim_interval"] = 1 
 
         lr = kwargs.get("args").learning_rate
 

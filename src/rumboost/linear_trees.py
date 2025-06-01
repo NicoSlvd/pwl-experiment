@@ -187,7 +187,7 @@ class LinearTree:
         self.best_right_leaf = None
         self.feature_importance_dict["gain"] = self.feature_importance_dict["gain"][:-1]
         self.boosting_count += 1
-        if self.bagging_freq > 0 and self.boosting_count % self.bagging_freq:
+        if self.bagging_freq > 0 and self.boosting_count % self.bagging_freq == 0:
             self.bagged_indices = np.random.choice(
                 np.arange(self.x.shape[0]),
                 size=int((1 - self.bagging_fraction) * self.x.shape[0]),
@@ -248,7 +248,7 @@ class LinearTree:
         self.update_bounds()
 
         self.boosting_count += 1
-        if self.bagging_freq > 0 and self.boosting_count % self.bagging_freq:
+        if self.bagging_freq > 0 and self.boosting_count % self.bagging_freq == 0:
             self.bagged_indices = np.random.choice(
                 np.arange(self.x.shape[0]),
                 size=int((1 - self.bagging_fraction) * self.x.shape[0]),
