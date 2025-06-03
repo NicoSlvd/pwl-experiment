@@ -63,8 +63,6 @@ class LinearTree:
         self.min_gain_to_split = min_gain_to_split
         self.min_data_in_bin = min_data_in_bin
         self.boosting_count = 0
-        # x_0 - e_0, x_0 - e_1, ...
-        # x_1 - e_0, x_1 - e_1, ...
 
     def build_lightgbm_style_histogram(
         self, feature_values, max_bin=255, min_data_in_bin=3
