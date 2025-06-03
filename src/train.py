@@ -137,7 +137,7 @@ def train(args):
 
     # fit the model
     start_time = time.time()
-    best_train_loss = model.fit()
+    best_train_loss, num_iterations = model.fit()
     end_time = time.time()
 
     # test the model
@@ -151,6 +151,7 @@ def train(args):
         "train_loss": best_train_loss,
         "train_time": end_time - start_time,
         "loss_test": loss_test,
+        "num_iterations": num_iterations,
     }
 
     # save the results

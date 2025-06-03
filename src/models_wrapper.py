@@ -180,7 +180,7 @@ class RUMBoost:
 
         self.best_iteration = self.model.best_iteration
 
-        return self.model.best_score_train
+        return self.model.best_score_train, int(best_iteration)
 
     def predict(self, X_test: pd.DataFrame) -> np.array:
         """
