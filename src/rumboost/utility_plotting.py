@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import torch
 
 try:
     import matplotlib.pyplot as plt
@@ -1941,6 +1942,21 @@ def create_name(features):
     return new_name
 
 
+def lintree_to_weights(split_and_leaf_values: dict, feature: str, utility: int):
+
+    lin_weights = []
+
+    splits = split_and_leaf_values["splits"]
+    leaves = split_and_leaf_values["leaves"] 
+    if isinstance(splits, torch.Tensor):
+        splits = splits.cpu().numpy()
+        leaves = leaves.cpu().numpy()
+
+    for unique_leaf in np.unique(leaves)[:-1]:
+        unique_split = np.argmax(splits[(leaves==unique_leaf)[:-1]])
+        left_leaf = unique_leaf
+
+
 def get_child(
     model,
     weights,
@@ -2216,17 +2232,20 @@ def get_weights(model, num_iteration=None):
         Dataframe with weights arranged for market segmentation, used in the case of market segmentation.
 
     """
-    if isinstance(model, LinearTree):
-        model_json = model.dump_model()
-        return model_json["split_and_leaves_values"], None, None
-    else:
-        model_json = model.dump_model(num_iteration=num_iteration)
+    model_json = model.dump_model(num_iteration=num_iteration)
 
     weights = []
     weights_2d = []
     weights_market = []
 
     for i, b in enumerate(model_json):
+        if "split_and_leaf_values" in b:
+            feature = model.rum_structure[i]["variables"][0]
+            utility = model.rum_structure[i]["utility"][0]
+            lin_weights = lintree_to_weights(b["split_and_leaf_values"], feature, utility)
+            weights.append(lin_weights)
+
+
         feature_names = b["feature_names"]
         for trees in b["tree_info"]:
             features = []

@@ -7,7 +7,7 @@ import time
 class LinearTree:
     def __init__(
         self,
-        x,
+        x=None,
         monotonic_constraint=0,
         max_bin=255,
         learning_rate=0.1,
@@ -21,24 +21,35 @@ class LinearTree:
         min_data_in_bin=3,
     ):
         """x must be 1d shape"""
-        self.bin_edges, self.histograms, self.bin_indices = (
-            self.build_lightgbm_style_histogram(x, max_bin, min_data_in_bin)
-        )
-        self.bin_indices_2d = self.bin_indices.reshape(1, -1).repeat(
-            self.bin_edges.shape[0] - 2, axis=0
-        )
-        self.x = x
+        if x is not None:
+            self.x = x
+            self.bin_edges, self.histograms, self.bin_indices = (
+                self.build_lightgbm_style_histogram(x, max_bin, min_data_in_bin)
+            )
+            self.bin_indices_2d = self.bin_indices.reshape(1, -1).repeat(
+                self.bin_edges.shape[0] - 2, axis=0
+            )
+            self.upper_bound_left = np.zeros(self.bin_edges.shape[0] - 2)
+            self.lower_bound_left = np.zeros(self.bin_edges.shape[0] - 2)
+            self.upper_bound_right = np.zeros(self.bin_edges.shape[0] - 2)
+            self.lower_bound_right = np.zeros(self.bin_edges.shape[0] - 2)
+            self.x_minus_bin_edges = self.x[None, :] - self.bin_edges[1:-1, None]
+            self.split_and_leaf_values = {
+                "splits": self.bin_edges,
+                "leaves": np.zeros(self.bin_edges.shape[0] - 1),
+                "value_at_splits": np.zeros(self.bin_edges.shape[0]),
+            }
+            self.bagging_fraction = bagging_fraction
+            self.bagging_freq = bagging_freq
+            if self.bagging_freq > 0:
+                self.bagged_indices = np.random.choice(
+                    np.arange(x.shape[0]),
+                    size=int((1 - self.bagging_fraction) * x.shape[0]),
+                    replace=False,
+                )
         self.monotonic_constraint = monotonic_constraint
-        self.upper_bound_left = np.zeros(self.bin_edges.shape[0] - 2)
-        self.lower_bound_left = np.zeros(self.bin_edges.shape[0] - 2)
-        self.upper_bound_right = np.zeros(self.bin_edges.shape[0] - 2)
-        self.lower_bound_right = np.zeros(self.bin_edges.shape[0] - 2)
-        self.x_minus_bin_edges = self.x[None, :] - self.bin_edges[1:-1, None]
-        self.split_and_leaf_values = {
-            "splits": self.bin_edges,
-            "leaves": np.zeros(self.bin_edges.shape[0] - 1),
-            "value_at_splits": np.zeros(self.bin_edges.shape[0]),
-        }
+
+        
         self.feature_importance_dict = {"gain": np.array([])}
         self.valid_sets = []
         self.name_valid_sets = []
@@ -50,14 +61,7 @@ class LinearTree:
                 "L1 regularisation not implemented yet, ignoring `lambda_l1` value."
             )
         self.lambda_l2 = lambda_l2
-        self.bagging_fraction = bagging_fraction
-        self.bagging_freq = bagging_freq
-        if self.bagging_freq > 0:
-            self.bagged_indices = np.random.choice(
-                np.arange(x.shape[0]),
-                size=int((1 - self.bagging_fraction) * x.shape[0]),
-                replace=False,
-            )
+
         self.min_data_in_leaf = min_data_in_leaf
         self.min_sum_hessian_in_leaf = min_sum_hessian_in_leaf
         self.min_gain_to_split = min_gain_to_split
@@ -233,7 +237,7 @@ class LinearTree:
         l_0 = self.best_left_leaf
         l_1 = self.best_right_leaf
 
-        self.split_and_leaf_values["leaves"][: self.best_index + 1] += l_0
+        self.split_and_leaf_values["leaves"][: self.best_index + 1] += -l_0
         self.split_and_leaf_values["leaves"][self.best_index + 1 :] += l_1
 
         distance_to_s = self.split_and_leaf_values["splits"] - s

@@ -2242,10 +2242,15 @@ class RUMBoost:
     def _from_dict(self, models: Dict[str, Any]) -> None:
         """Load RUMBoost from dict."""
         self.boosters = []
-        for model_str in models["boosters"]:
-            self._append(Booster(model_str=model_str))
         if "attributes" in models:
             self.__dict__.update(models["attributes"])
+        for j, model_str in enumerate(models["boosters"]):
+            if self.boost_from_parameter_space and self.boost_from_parameter_space[j]:
+                booster = LinearTree()
+                self._append(booster.model_from_string(s=model_str))
+            else:
+                self._append(Booster(model_str=model_str))
+
 
     def _to_dict(
         self, num_iteration: Optional[int], start_iteration: int, importance_type: str

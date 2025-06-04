@@ -1,2 +1,2 @@
-,train_loss,train_time,loss_test
-0,0.6716041,62.10525417327881,0.7661548060369703
+,train_loss,train_time,loss_test,num_iterations
+0,0.6701315,82.18835186958313,0.7708222303083222,1186
