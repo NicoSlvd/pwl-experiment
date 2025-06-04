@@ -235,7 +235,7 @@ class LinearTree:
         l_0 = self.best_left_leaf
         l_1 = self.best_right_leaf
 
-        self.split_and_leaf_values["leaves"][: self.best_index + 1] += -l_0
+        self.split_and_leaf_values["leaves"][: self.best_index + 1] += l_0
         self.split_and_leaf_values["leaves"][self.best_index + 1 :] += l_1
 
         distance_to_s = self.split_and_leaf_values["splits"] - s

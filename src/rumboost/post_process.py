@@ -148,7 +148,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
     for rum in model.rum_structure:
         for v in rum["variables"]:
             vars_in_utility[v].extend(rum["utility"])
-            unique_betas[v] = Beta(f"{v}_0", 0, None, None, 0)
+            # unique_betas[v] = Beta(f"{v}_0", 0, None, None, 0)
 
 
     vars_to_normalise = []
@@ -191,7 +191,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
                 )
                 # define betas
                 betas = [
-                    Beta(f"{name}_{i}_{j}", init_beta[j], lowerbound, upperbound, 0)
+                    Beta(f"b_{name}_{i}_{j}", init_beta[j], lowerbound, upperbound, 0)
                     for j in range(len(split_points) - 1)
                 ]
                 # add piecewise linear variables to the proper utility function
@@ -226,41 +226,59 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
                 )
                 # define betas
                 if len(split_points) == 1: # if already binary
-                    if len(vars_in_utility[name]) > 1:
-                        beta_dict = {
-                            f"{name}_{i}_{0}": unique_betas[name]
-                        }
-                        vars = [Variable(name)]
-                    else:
-                        beta_dict = {
-                            f"{name}_{i}_{0}": Beta(f"{name}_{i}_0", init_beta[0], lowerbound, upperbound, 0)
-                        }
-                        vars = [Variable(name)]
+                    # if len(vars_in_utility[name]) > 1:
+                    #     beta_dict = {
+                    #         f"{name}_{i}_{0}": unique_betas[name]
+                    #     }
+                    #     vars = [Variable(name)]
+                    # else:
+
+                    beta_dict = {
+                        f"b_{name}_{i}_{0}": Beta(f"b_{name}_{i}_0", init_beta[0], lowerbound, upperbound, 0)
+                    }
+                    vars = [Variable(name)]
                 else:
                     #if non binary
                     split_points.insert(0, dataset[name].min())
                     split_points.append(dataset[name].max())
                     # we normalise to zero the first beta
                     beta_dict = {
-                        f"{name}_{i}_0": Beta(f"{name}_{i}_0", 0, None, None, 1)
+                        f"b_{name}_{i}_0": Beta(f"b_{name}_{i}_0", 0, None, None, 1)
                     }
                     # if monotonicity constraint, we use previous beta as lower/upper bound
+                    vars = []
                     for j in range(1, len(split_points) - 1):
-                        beta_dict[f"{name}_{i}_{j}"] = Beta(
-                            f"{name}_{i}_{j}",
-                            init_beta[j],
-                            beta_dict[f"{name}_{i}_{j-1}"] * (lowerbound == 0), 
-                            beta_dict[f"{name}_{i}_{j-1}"] * (upperbound == 0),
-                            int(j == 0),
-                        )
-                    vars = [
-                        database.define_variable(
-                            f"{name}_{i}_{j}",
-                            (Variable(name) - split_points[j])
-                            * (Variable(name) - split_points[j + 1] <= 0),
-                        )
-                        for j in range(len(split_points) - 1)
-                    ]
+                        if lowerbound:
+                            beta_dict[f"b_{name}_{i}_{j}"] = Beta(
+                                f"delta_{name}_{i}_{j}",
+                                init_beta[j] - init_beta[j-1],
+                                0, 
+                                None,
+                                0,
+                            ) + beta_dict[f"b_{name}_{i}_{j-1}"]
+                        elif upperbound:
+                            beta_dict[f"b_{name}_{i}_{j}"] = Beta(
+                                f"delta_{name}_{i}_{j}",
+                                init_beta[j] - init_beta[j-1],
+                                None, 
+                                0,
+                                0,
+                            ) + beta_dict[f"b_{name}_{i}_{j-1}"]
+                        else: 
+                            beta_dict[f"b_{name}_{i}_{j}"] = Beta(
+                                f"b_{name}_{i}_{j}",
+                                init_beta[j],
+                                None, 
+                                None,
+                                0,
+                            )
+                        if f"{name}_{i}_{j}" not in database.variables:
+                            database.define_variable(
+                                f"{name}_{i}_{j}",
+                                ((Variable(name) - split_points[j])
+                                * (Variable(name) - split_points[j + 1])) <= 0,
+                            )
+                        vars.append(Variable(f"{name}_{i}_{j}"))
                 for u in model.rum_structure[int(i)]["utility"]:
                     if u == alt_to_normalise and name in vars_to_normalise:
                         continue

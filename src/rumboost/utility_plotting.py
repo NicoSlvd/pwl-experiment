@@ -237,14 +237,6 @@ def plot_parameters(
         The name to save the figure with. The figure will be saved only if save_file is not an empty string.
     """
 
-    if boost_from_parameter_space:
-        for u, key in boost_from_parameter_space.items():
-            for f, val in key.items():
-                if val:
-                    raise NotImplementedError(
-                        "Plotting from parameter space is not implemented yet."
-                    )
-
     weights_arranged = weights_to_plot_v2(model, num_iteration=num_iteration)
 
     if with_asc:
@@ -593,7 +585,7 @@ def plot_parameters(
                     non_lin_func = model._linear_predict(int(u), x)
                     if model.device is not None and not isinstance(non_lin_func, list):
                         non_lin_func = non_lin_func.cpu().numpy()
-                if f in list(X.columns):
+                elif f in list(X.columns):
                     x, non_lin_func = non_lin_function(
                         weights_arranged[u][f],
                         0,
@@ -1946,15 +1938,24 @@ def lintree_to_weights(split_and_leaf_values: dict, feature: str, utility: int):
 
     lin_weights = []
 
-    splits = split_and_leaf_values["splits"]
-    leaves = split_and_leaf_values["leaves"] 
-    if isinstance(splits, torch.Tensor):
-        splits = splits.cpu().numpy()
-        leaves = leaves.cpu().numpy()
+    splits = np.array(split_and_leaf_values["splits"])
+    leaves = np.array(split_and_leaf_values["leaves"])
 
-    for unique_leaf in np.unique(leaves)[:-1]:
-        unique_split = np.argmax(splits[(leaves==unique_leaf)[:-1]])
-        left_leaf = unique_leaf
+    leaf_change_idx = np.where(leaves[:-1] != leaves[1:])[0]
+    unique_splits = splits[leaf_change_idx]
+    unique_leaves = np.concat([leaves[leaf_change_idx], leaves[-1].reshape(1)])
+
+    for i, u in enumerate(unique_leaves[:-1]):
+        if i == 0:
+            left_leaf = u
+            right_leaf = unique_leaves[i+1]
+        else:
+            left_leaf = 0
+            right_leaf = unique_leaves[i+1] - unique_leaves[i]
+
+        lin_weights.append([feature, unique_splits[i], left_leaf, right_leaf, utility])
+
+    return lin_weights
 
 
 def get_child(
@@ -2241,33 +2242,31 @@ def get_weights(model, num_iteration=None):
     for i, b in enumerate(model_json):
         if "split_and_leaf_values" in b:
             feature = model.rum_structure[i]["variables"][0]
-            utility = model.rum_structure[i]["utility"][0]
-            lin_weights = lintree_to_weights(b["split_and_leaf_values"], feature, utility)
-            weights.append(lin_weights)
+            lin_weights = lintree_to_weights(b["split_and_leaf_values"], feature, i)
+            weights.extend(lin_weights)
+        else:
+            feature_names = b["feature_names"]
+            for trees in b["tree_info"]:
+                features = []
+                split_points = []
+                market_segm = False
 
+                # skipping empty trees
+                if "split_feature" not in trees["tree_structure"]:
+                    continue
 
-        feature_names = b["feature_names"]
-        for trees in b["tree_info"]:
-            features = []
-            split_points = []
-            market_segm = False
-
-            # skipping empty trees
-            if "split_feature" not in trees["tree_structure"]:
-                continue
-
-            get_child(
-                model,
-                weights,
-                weights_2d,
-                weights_market,
-                trees["tree_structure"],
-                split_points,
-                features,
-                feature_names,
-                i,
-                market_segm,
-            )
+                get_child(
+                    model,
+                    weights,
+                    weights_2d,
+                    weights_market,
+                    trees["tree_structure"],
+                    split_points,
+                    features,
+                    feature_names,
+                    i,
+                    market_segm,
+                )
 
     weights_df = pd.DataFrame(
         weights,
@@ -2435,7 +2434,7 @@ def non_lin_function(
                     start_point
                     + float(weights_ordered["Histogram values"][i]) * (x - x_pad)
                 ]  # a + bx
-            elif x < float(
+            elif x <= float(
                 weights_ordered["Splitting points"][i]
             ):  # up to last interval
                 nonlin_function += [
