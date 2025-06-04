@@ -463,8 +463,8 @@ class RUMBoost:
 
         preds = self._preds
         targets = self.labels[self.subsample_idx]
-        grad = 2 * (preds.reshape(-1) - targets).reshape(-1, 1)
-        hess = 2 * np.ones_like(preds)
+        grad = (preds.reshape(-1) - targets).reshape(-1, 1)
+        hess = np.ones_like(preds)
 
         if self.subsample_idx.size < self.num_obs[0]:
             grad_rescaled = np.zeros(
@@ -1474,11 +1474,16 @@ class RUMBoost:
             for valid_set in reduced_valid_set:
                 valid_set.construct()
                 self.num_obs.append(valid_set.num_data())
+                val_labs = valid_set.get_label()
+                if self.num_classes > 1 and self.thresholds is not None:
+                    val_labs = val_labs.astype(np.int32)
                 self.valid_labels.append(
-                    valid_set.get_label().astype(np.int32)
+                    val_labs
                 )  # saving labels
 
-        self.labels = data.get_label().astype(np.int32)  # saving labels
+        self.labels = data.get_label()  # saving labels
+        if self.num_classes > 1 and self.thresholds is not None:
+            self.labels = self.labels.astype(np.int32)
         self.labels_j = (
             self.labels[:, None] == np.array(range(self.num_classes))[None, :]
         ).astype(np.int8)
@@ -3610,6 +3615,8 @@ def rum_train(
             )
 
             rumb.thresholds = diff_to_threshold(res.x)
+
+        rumb._preds = rumb._inner_predict()
 
         if optimise_ascs and ((i + 1) % optim_interval == 0):
             #     if rumb.device is not None:
