@@ -2,7 +2,7 @@
 # Automatically created on June 04, 2025. 11:45:28
 
 [SimpleBounds]
-second_derivatives = 0.01 # float: proportion (between 0 and 1) of iterations when
+second_derivatives = 0.0 # float: proportion (between 0 and 1) of iterations when
                          # the analytical Hessian is calculated
 tolerance = 0.0001220703125 # float: the algorithm stops when this precision is
                             # reached
@@ -13,7 +13,7 @@ infeasible_cg = "False" # If True, the conjugate gradient algorithm may generate
                         # False, the algorithm stops as soon as an infeasible
                         # iterate is generated
 initial_radius = 1 # Initial radius of the trust region
-steptol = 1e-05 # The algorithm stops when the relative change in x is below this
+steptol = 1e-03 # The algorithm stops when the relative change in x is below this
                 # threshold. Basically, if p significant digits of x are needed,
                 # steptol should be set to 1.0e-p.
 enlarging_factor = 10 # If an iteration is very successful, the radius of the

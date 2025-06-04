@@ -182,6 +182,13 @@ def parse_cmdline_args(raw_args=None, parser=None):
         help="Use monotone constraints for the model",
         choices=["true", "false"],
     )
+    parser.add_argument(
+        "--all_boosters",
+        type=str,
+        default="false",
+        help="if using all boosters to update at each boosting iteration",
+        choices=["true", "false"],
+    )
 
     parser.set_defaults(feature=True)
     args = parser.parse_args(raw_args)
@@ -189,7 +196,9 @@ def parse_cmdline_args(raw_args=None, parser=None):
     d = {'true': True,
          'false': False}
 
+
     args.save_model = d[args.save_model]
     args.monotone = d[args.monotone]
+    args.all_boosters = d[args.all_boosters]
 
     return args

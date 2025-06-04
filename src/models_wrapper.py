@@ -44,15 +44,18 @@ class RUMBoost:
             verbose_interval=kwargs.get("args").verbose_interval,
         )
 
-        num_boosters_per_util = np.min(
-            [len(s) for s in kwargs.get("structure").values()]
-        ) * kwargs.get("num_classes")
+        if kwargs.get("args").all_boosters:
+            num_boosters_per_util = np.min(
+                [len(s) for s in kwargs.get("structure").values()]
+            )
+            general_params["max_booster_to_update"] = kwargs.get("num_classes") * num_boosters_per_util
+            lr = np.minimum(1 / num_boosters_per_util, 0.1)
+        else:
+            lr = kwargs.get("args").learning_rate
+            general_params["max_booster_to_update"] = kwargs.get("num_classes") 
 
-        general_params["max_booster_to_update"] = kwargs.get("num_classes") 
         general_params["boost_from_parameter_space"] = self.boost_from_parameter_space
         general_params["optim_interval"] = 1 
-
-        lr = kwargs.get("args").learning_rate
 
         # add hyperparameters
         hyperparameters = {
