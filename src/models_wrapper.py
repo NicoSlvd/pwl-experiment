@@ -49,7 +49,7 @@ class RUMBoost:
                 [len(s) for s in kwargs.get("structure").values()]
             )
             general_params["max_booster_to_update"] = kwargs.get("num_classes") * num_boosters_per_util
-            lr = np.minimum(1 / num_boosters_per_util, 0.1)
+            lr = np.minimum(1 / num_boosters_per_util, 0.07)
         else:
             lr = kwargs.get("args").learning_rate
             general_params["max_booster_to_update"] = kwargs.get("num_classes") 
