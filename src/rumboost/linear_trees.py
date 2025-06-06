@@ -8,6 +8,7 @@ class LinearTree:
     def __init__(
         self,
         x=None,
+        init_leaf_val=0,
         monotonic_constraint=0,
         max_bin=255,
         learning_rate=0.1,
@@ -36,7 +37,7 @@ class LinearTree:
             self.x_minus_bin_edges = self.x[None, :] - self.bin_edges[1:-1, None]
             self.split_and_leaf_values = {
                 "splits": self.bin_edges,
-                "leaves": np.zeros(self.bin_edges.shape[0] - 1),
+                "leaves": init_leaf_val*np.ones(self.bin_edges.shape[0] - 1),
                 "value_at_splits": np.zeros(self.bin_edges.shape[0]),
             }
             self.bagging_fraction = bagging_fraction

@@ -1680,6 +1680,7 @@ class RUMBoost:
                         self.train_set[j].construct()
                         booster = LinearTree(
                             self.train_set[j].get_data().reshape(-1),
+                            init_leaf_val=struct.get("init_leaf_val", 0.0),
                             monotonic_constraint=params["monotone_constraints"][0],
                             max_bin=params.get("max_bin", 255),
                             learning_rate=params.get("learning_rate", 0.1),

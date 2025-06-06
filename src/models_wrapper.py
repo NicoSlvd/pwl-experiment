@@ -28,6 +28,7 @@ class RUMBoost:
         self.rum_structure = generate_rum_structure(
             kwargs.get("structure"),
             kwargs.get("monotone_constraints"),
+            kwargs.get("init_leaf_val")
         )
 
         self.boost_from_parameter_space = generate_boost_from_param_space(

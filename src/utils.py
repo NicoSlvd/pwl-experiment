@@ -54,6 +54,7 @@ def augment_dataset(
 def generate_rum_structure(
     structure: Dict[int, List[str]],
     monotone_constraints: Dict[int, List[int]] = None,
+    init_leaf_val: Optional[Dict[int, Dict[str, float]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Generate the rum structure for the given dataset.
@@ -67,6 +68,8 @@ def generate_rum_structure(
         The monotone constraints for the rum model.
         The keys are the ensemble indices and the values are the monotone constraints.
         The default is None.
+    init_leaf_val: Optional[Dict[int, Dict[str, float]]], optional
+        The initial leaf values for the rum model.
 
     Returns
     -------
@@ -99,6 +102,9 @@ def generate_rum_structure(
                         ),
                     },
                     "shared": False,
+                    "init_leaf_val": (
+                        init_leaf_val[u_idx][f] if init_leaf_val and f in init_leaf_val[u_idx] else 0.0
+                    ),
                 }
             )
 

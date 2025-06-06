@@ -111,7 +111,7 @@ def bootstrap(
     return models
 
 
-def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
+def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utilities=False):
     """
     Provide a piece-wise linear model spcification based on a pre-trained rumboost model.
 
@@ -126,6 +126,8 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
         A series containing the choices
     alt_to_normalise: int, optional (default=0)
         The variables of that alternative will be normalised when needed (socio-economic characteristics, ascs, ...).
+    utilities: bool, optional (default=False)
+        If True, the model will return the utility values, otherwise it will return the loglogit values.
 
     Returns
     -------
@@ -288,16 +290,32 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0):
 
     availability = {i: 1 for i in range(model.num_classes)}
 
-    model_name = "assisted_model"
+    if not return_utilities:
 
-    logprob = loglogit(utility_spec, availability, Variable("choice"))
+        model_name = "assisted_model_pwlinear"
 
-    the_biogeme = BIOGEME(database, logprob)
-    the_biogeme.modelName = model_name
+        logprob = loglogit(utility_spec, availability, Variable("choice"))
+
+        the_biogeme = BIOGEME(database, logprob)
+        the_biogeme.modelName = model_name
+        
+        the_biogeme.calculateNullLoglikelihood(availability)
+
+        return the_biogeme
     
-    the_biogeme.calculateNullLoglikelihood(availability)
+    else:
+        model_name = "assisted_model_utilities_pwlinear"
 
-    return the_biogeme
+        utilities_expr = {
+            str(i): utility_spec[i] for i in range(model.num_classes)
+        }
+
+        the_biogeme = BIOGEME(database, utilities_expr)
+        the_biogeme.modelName = model_name
+
+        the_biogeme.calculateNullLoglikelihood(availability)
+
+        return the_biogeme
 
 def estimate_dcm_with_assisted_spec(
     dataset: pd.DataFrame,
@@ -331,6 +349,7 @@ def predict_with_assisted_spec(
     choice: pd.Series,
     model: RUMBoost,
     beta_values: dict,
+    utilities: bool = False
 ):
     """
     Predict choices with a piece-wise linear model specification based on a pre-trained rumboost model.
@@ -345,12 +364,14 @@ def predict_with_assisted_spec(
         A trained rumboost model.
     beta_values: dict
         A dictionary containing the beta values of the model, estimated on the train set.
+    utilities: bool, optional (default=False)
+        If True, the model will return the utilities instead of the log-probs.
 
     Returns
     -------
     prediction_results: biogeme.results.bioResults
     """
-    the_biogeme = assist_model_spec(model, dataset, choice)
+    the_biogeme = assist_model_spec(model, dataset, choice, return_utilities=utilities)
 
     prediction_results = the_biogeme.simulate(beta_values)
 

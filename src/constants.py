@@ -235,3 +235,20 @@ sm_monotone_constraints = {
     "AGE_1": 0,
     "AGE_2": 0,
 }
+
+init_leaf_val = {
+    0: {
+        "TRAIN_TT": -15.9,
+        "TRAIN_COST": -7.47,
+        "TRAIN_HE": -0.562,
+    },
+    1: {
+        "SM_TT":-11,
+        "SM_COST":-6.69,
+        "SM_HE":-0.129,
+    },
+    2: {
+        "CAR_TT":-15.7,
+        "CAR_CO":-3.98,
+    },
+}
