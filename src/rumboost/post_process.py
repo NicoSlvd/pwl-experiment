@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
+import os
 from rumboost.rumboost import RUMBoost, rum_train
 from rumboost.utility_plotting import weights_to_plot_v2
 
@@ -176,7 +177,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                 split_points.append(dataset[name].max())
                 # monotonicity constraints
                 lowerbound = (
-                    0
+                    0.0
                     if model.rum_structure[int(i)]["boosting_params"][
                         "monotone_constraints"
                     ][0]
@@ -184,7 +185,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     else None
                 )
                 upperbound = (
-                    0
+                    0.0
                     if model.rum_structure[int(i)]["boosting_params"][
                         "monotone_constraints"
                     ][0]
@@ -211,7 +212,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                 init_beta = [i - beta_0 for i in init_beta]
                 # monotonicity constraints
                 lowerbound = (
-                    0
+                    0.0
                     if model.rum_structure[int(i)]["boosting_params"][
                         "monotone_constraints"
                     ][0]
@@ -219,7 +220,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     else None
                 )
                 upperbound = (
-                    0
+                    0.0
                     if model.rum_structure[int(i)]["boosting_params"][
                         "monotone_constraints"
                     ][0]
@@ -250,30 +251,13 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     # if monotonicity constraint, we use previous beta as lower/upper bound
                     vars = []
                     for j in range(1, len(split_points) - 1):
-                        if lowerbound:
-                            beta_dict[f"b_{name}_{i}_{j}"] = Beta(
-                                f"delta_{name}_{i}_{j}",
-                                init_beta[j] - init_beta[j-1],
-                                0, 
-                                None,
-                                0,
-                            ) + beta_dict[f"b_{name}_{i}_{j-1}"]
-                        elif upperbound:
-                            beta_dict[f"b_{name}_{i}_{j}"] = Beta(
-                                f"delta_{name}_{i}_{j}",
-                                init_beta[j] - init_beta[j-1],
-                                None, 
-                                0,
-                                0,
-                            ) + beta_dict[f"b_{name}_{i}_{j-1}"]
-                        else: 
-                            beta_dict[f"b_{name}_{i}_{j}"] = Beta(
-                                f"b_{name}_{i}_{j}",
-                                init_beta[j],
-                                None, 
-                                None,
-                                0,
-                            )
+                        beta_dict[f"b_{name}_{i}_{j}"] = Beta(
+                            f"delta_{name}_{i}_{j}",
+                            init_beta[j] - init_beta[j-1],
+                            lowerbound, 
+                            upperbound,
+                            0,
+                        ) + beta_dict[f"b_{name}_{i}_{j-1}"]
                         if f"{name}_{i}_{j}" not in database.variables:
                             database.define_variable(
                                 f"{name}_{i}_{j}",
@@ -340,7 +324,17 @@ def estimate_dcm_with_assisted_spec(
     """
     the_biogeme = assist_model_spec(model, dataset, choice)
 
-    results = the_biogeme.estimate(recycle=True)
+    current_directory = os.getcwd()
+
+    os.chdir(current_directory + "/results/SwissMetro/assisted_specification/")
+    # with open("__assisted_model.iter") as f:
+    #     lines = f.readlines()
+    # param_values = [float(line.split("= ")[1]) for line in lines]
+
+        
+    # results = the_biogeme.estimate(recycle=True)
+    results = the_biogeme.estimate()
+    # results = the_biogeme.calculate_likelihood(param_values, scaled=True)
 
     return results
 
