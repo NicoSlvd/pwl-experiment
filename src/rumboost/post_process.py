@@ -375,6 +375,7 @@ def estimate_dcm_with_assisted_spec(
         
     # results = the_biogeme.estimate(recycle=True)
     results = the_biogeme.estimate()
+
     os.chdir(current_directory)
 
     return results
@@ -382,7 +383,8 @@ def estimate_dcm_with_assisted_spec(
 def predict_with_assisted_spec(
     dataset_train: pd.DataFrame,
     dataset_test: pd.DataFrame,
-    choice: pd.Series,
+    choice_train: pd.Series,
+    choice_test: pd.Series,
     model: RUMBoost,
     beta_values: dict,
     utilities: bool = False
@@ -396,8 +398,10 @@ def predict_with_assisted_spec(
         A dataset used for estimation
     dataset_test: pd.DataFrame
         A dataset used for prediction
-    choice: pd.Series
-        A series containing the choices
+    choice_train: pd.Series
+        A series containing the training set choices
+    choice_test: pd.Series
+        A series containing the test set choices
     model: RUMBoost
         A trained rumboost model.
     beta_values: dict
@@ -409,7 +413,7 @@ def predict_with_assisted_spec(
     -------
     prediction_results: biogeme.results.bioResults
     """
-    the_biogeme = assist_model_spec(model, dataset_train, choice, return_utilities=utilities, dataset_test=dataset_test)
+    the_biogeme = assist_model_spec(model, dataset_train, choice_train, return_utilities=utilities, dataset_test=dataset_test)
 
     prediction_results = the_biogeme.simulate(beta_values)
 
