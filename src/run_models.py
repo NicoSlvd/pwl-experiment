@@ -1,13 +1,13 @@
 from main import main
 
-for dataset in ["SwissMetro"]:#, "LPMC"]:
-    for model_type in ["constant","constant_linear"]:#, "linear"]: #"constant_cubic", "linear", "cubic", 
-        for monotone in [True, False]:
+for model_type in [ "constant_linear"]: #"constant","linear", , "constant_cubic", "linear", "cubic", 
+    for dataset in ["SwissMetro"]:#, "LPMC"]:
+        for monotone in [True, False]:#, False]:
             for model in ["RUMBoost"]:#"APLR"
                 if model == "APLR" and model_type != "linear":
                     continue
-                # if model_type == "constant":
-                #     continue
+                if model_type == "linear" and dataset == "SwissMetro":
+                    continue
                 # if model_type == "constant_linear" and monotone == False:
                 #     continue
                 main([

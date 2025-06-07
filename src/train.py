@@ -15,6 +15,7 @@ from constants import (
     lpmc_cont_vars,
     lpmc_structure,
     lpmc_mono_cons,
+    init_leaf_val,
 )
 from utils import augment_dataset, transform_vars_list, transform_mono_cons
 from models_wrapper import RUMBoost, APLR
@@ -120,6 +121,7 @@ def train(args):
             bin_vars=bin_vars,
             num_classes=num_classes,
             args=args,
+            init_leaf_val=init_leaf_val,
         )
         save_path = (
             args.outpath + f"model_{args.all_boosters}.json"
