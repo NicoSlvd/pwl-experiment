@@ -193,7 +193,10 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     else None
                 )
                 # define betas
-                beta_fixed = 1 if alt_to_normalise == model.rum_structure[int(i)]["utility"][0] else 0
+                if alt_to_normalise == model.rum_structure[int(i)]["utility"][0] and name in vars_to_normalise:
+                    beta_fixed = 1  
+                else:
+                    beta_fixed = 0
                 betas = [
                     Beta(f"b_{name}_{i}_{j}", init_beta[j], lowerbound, upperbound, beta_fixed)
                     for j in range(len(split_points) - 1)
@@ -209,7 +212,10 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                 init_beta = tree_info["Histogram values"]
                 beta_0 = init_beta[0]
                 init_beta = [i - beta_0 for i in init_beta]
-                beta_fixed = 1 if alt_to_normalise == model.rum_structure[int(i)]["utility"][0] else 0
+                if alt_to_normalise == model.rum_structure[int(i)]["utility"][0] and name in vars_to_normalise:
+                    beta_fixed = 1  
+                else:
+                    beta_fixed = 0
                 # monotonicity constraints
                 lowerbound = (
                     0.0
@@ -237,7 +243,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     # else:
 
                     beta_dict = {
-                        f"b_{name}_{i}_{0}": Beta(f"b_{name}_{i}_0", init_beta[0], lowerbound, upperbound, beta_fixed)
+                        f"b_{name}_{i}_{0}": Beta(f"b_{name}_{i}_0", beta_0, lowerbound, upperbound, beta_fixed)
                     }
                     vars = [Variable(name)]
                 else:
@@ -325,14 +331,9 @@ def estimate_dcm_with_assisted_spec(
     current_directory = os.getcwd()
 
     os.chdir(current_directory + "/results/SwissMetro/assisted_specification/")
-    # with open("__assisted_model.iter") as f:
-    #     lines = f.readlines()
-    # param_values = [float(line.split("= ")[1]) for line in lines]
-
         
     # results = the_biogeme.estimate(recycle=True)
     results = the_biogeme.estimate()
-    # results = the_biogeme.calculate_likelihood(param_values, scaled=True)
 
     return results
 
