@@ -2584,12 +2584,15 @@ def rum_train(
                         If the same variable is shared across alternatives, it must be repeated in the
                         variables list (by example variables = ['var1', 'var1', 'var1'] and utility = [0, 1, 2]).
 
-                And one optional key:
+                And two optional keys:
                     - 'endogenous_variable': str
                         The name of one variable in the train_set. This is only used if boosted from the parameter
                         space, and the variable is not included in the variables list. The output of the
                         trees are the slope and the variable in endogenous_variable is the variable used in the
                         beta times x output. The variable must be continuous or binary.
+                    - 'init_leaf_val': float
+                        Initial leaf value for the ensemble in the parameter space. This will only be
+                        used for ensembles boosted from the parameter space.
 
         The other keys are optional and can be:
 
@@ -3312,7 +3315,10 @@ def rum_train(
 
     # convert a few numpy arrays to torch tensors if needed
     if torch_tensors:
-        rumb.labels = torch.from_numpy(rumb.labels).type(torch.int16).to(rumb.device)
+        if rumb.num_classes == 1 and rumb.thresholds is None:
+            rumb.labels = torch.from_numpy(rumb.labels).type(torch.double).to(rumb.device)
+        else:
+            rumb.labels = torch.from_numpy(rumb.labels).type(torch.int16).to(rumb.device)
         rumb.asc = torch.from_numpy(rumb.asc).type(torch.double).to(rumb.device)
         if rumb.labels_j is not None:
             rumb.labels_j = (
@@ -3476,6 +3482,7 @@ def rum_train(
             else:
                 rumb.raw_preds[rumb.booster_train_idx[j]] += init_preds
 
+    rumb._update_raw_preds([])
     rumb._preds = rumb._inner_predict()
 
     if params.get("full_hessian", False):

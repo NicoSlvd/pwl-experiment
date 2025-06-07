@@ -102,9 +102,6 @@ def generate_rum_structure(
                         ),
                     },
                     "shared": False,
-                    "init_leaf_val": (
-                        init_leaf_val[u_idx][f] if init_leaf_val and f in init_leaf_val[u_idx] else 0.0
-                    ),
                 }
             )
 
@@ -163,10 +160,6 @@ def add_hyperparameters(
     for struct in rum_struct:
         # add the hyperparameters to the rum structure
         struct["boosting_params"].update(hyperparameters)
-
-        if "linear" in struct["variables"][0] or "square" in struct["variables"][0] or "cubic" in struct["variables"][0]:
-            # add the hyperparameters to the rum structure
-            struct["boosting_params"]["lambda_l2"] = 10
 
     return rum_struct
 

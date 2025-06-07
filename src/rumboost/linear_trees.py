@@ -30,15 +30,15 @@ class LinearTree:
             self.bin_indices_2d = self.bin_indices.reshape(1, -1).repeat(
                 self.bin_edges.shape[0] - 2, axis=0
             )
-            self.upper_bound_left = np.zeros(self.bin_edges.shape[0] - 2)
-            self.lower_bound_left = np.zeros(self.bin_edges.shape[0] - 2)
-            self.upper_bound_right = np.zeros(self.bin_edges.shape[0] - 2)
-            self.lower_bound_right = np.zeros(self.bin_edges.shape[0] - 2)
+            self.upper_bound_left = init_leaf_val * np.ones(self.bin_edges.shape[0] - 2)
+            self.lower_bound_left = init_leaf_val * np.ones(self.bin_edges.shape[0] - 2)
+            self.upper_bound_right = init_leaf_val * np.ones(self.bin_edges.shape[0] - 2)
+            self.lower_bound_right = init_leaf_val * np.ones(self.bin_edges.shape[0] - 2)
             self.x_minus_bin_edges = self.x[None, :] - self.bin_edges[1:-1, None]
             self.split_and_leaf_values = {
                 "splits": self.bin_edges,
-                "leaves": init_leaf_val*np.ones(self.bin_edges.shape[0] - 1),
-                "value_at_splits": np.zeros(self.bin_edges.shape[0]),
+                "leaves": init_leaf_val * np.ones(self.bin_edges.shape[0] - 1),
+                "value_at_splits": init_leaf_val * self.bin_edges,
             }
             self.bagging_fraction = bagging_fraction
             self.bagging_freq = bagging_freq
@@ -50,7 +50,6 @@ class LinearTree:
                 )
         self.monotonic_constraint = monotonic_constraint
 
-        
         self.feature_importance_dict = {"gain": np.array([])}
         self.valid_sets = []
         self.name_valid_sets = []
@@ -82,7 +81,7 @@ class LinearTree:
                 warnings.warn(
                     f"[Warning] Not enough data in bins. Reducing max_bin from {max_bin} to {max_bin // 2}."
                 )
-                max_bin = int(max_bin/2)  # reduce bins and try again
+                max_bin = int(max_bin / 2)  # reduce bins and try again
             else:
                 break
 
@@ -143,24 +142,34 @@ class LinearTree:
         no_split_gain = np.nan_to_num(no_split_gain, nan=-np.inf)
 
         if self.monotonic_constraint == 1:
-            left_gain[self.learning_rate * left_leaf < -self.lower_bound_left] = -np.inf
-            right_gain[self.learning_rate * right_leaf < -self.lower_bound_right] = -np.inf
+            left_gain[self.learning_rate * left_leaf < -self.lower_bound_left] = 0
+            left_leaf[self.learning_rate * left_leaf < -self.lower_bound_left] = 0
+            right_gain[self.learning_rate * right_leaf < -self.lower_bound_right] = 0
+            right_leaf[self.learning_rate * right_leaf < -self.lower_bound_right] = 0
 
         if self.monotonic_constraint == -1:
-            left_gain[self.learning_rate * left_leaf > -self.upper_bound_left] = -np.inf
-            right_gain[self.learning_rate * right_leaf > -self.upper_bound_right] = -np.inf
+            left_gain[self.learning_rate * left_leaf > -self.upper_bound_left] = 0
+            left_leaf[self.learning_rate * left_leaf > -self.upper_bound_left] = 0
+            right_gain[self.learning_rate * right_leaf > -self.upper_bound_right] = 0
+            right_leaf[self.learning_rate * right_leaf > -self.upper_bound_right] = 0
 
         if self.min_sum_hessian_in_leaf > 0:
-            left_gain[sum_hessian_left < self.min_sum_hessian_in_leaf] = -np.inf
-            right_gain[sum_hessian_right < self.min_sum_hessian_in_leaf] = -np.inf
+            left_gain[sum_hessian_left < self.min_sum_hessian_in_leaf] = 0
+            left_leaf[sum_hessian_left < self.min_sum_hessian_in_leaf] = 0
+            right_gain[sum_hessian_right < self.min_sum_hessian_in_leaf] = 0
+            right_leaf[sum_hessian_right < self.min_sum_hessian_in_leaf] = 0
 
         if self.min_data_in_leaf > 0:
-            left_gain[(self.histograms * mask).sum(axis=1) < self.min_data_in_leaf] = (
-                -np.inf
-            )
+            left_gain[(self.histograms * mask).sum(axis=1) < self.min_data_in_leaf] = 0
+            left_leaf[
+                (self.histograms * mask).sum(axis=1) < self.min_data_in_leaf
+            ] = 0
             right_gain[
                 (self.histograms * ~mask).sum(axis=1) < self.min_data_in_leaf
-            ] = -np.inf
+            ] = 0
+            right_leaf[
+                (self.histograms * ~mask).sum(axis=1) < self.min_data_in_leaf
+            ] = 0
 
         gain = left_gain + right_gain - no_split_gain
 
@@ -169,7 +178,7 @@ class LinearTree:
         if self.min_gain_to_split > 0:
             gain[gain < self.min_gain_to_split] = -np.inf
 
-        if (gain < 0).all():
+        if (gain <= 0).all():
             warnings.warn("No splits with positive gains. Ignoring boosting round.")
             self.ignore_round = True
         else:
@@ -263,11 +272,31 @@ class LinearTree:
         edgerange = np.arange(self.upper_bound_left.shape[0]) + 1
         mask = arange[None, :] < edgerange[:, None]
 
-        self.lower_bound_left = np.min(self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0), where=mask, axis=1, initial=np.inf)
-        self.upper_bound_left = np.max(self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0), where=mask, axis=1, initial=-np.inf)
+        self.lower_bound_left = np.min(
+            self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0),
+            where=mask,
+            axis=1,
+            initial=np.inf,
+        )
+        self.upper_bound_left = np.max(
+            self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0),
+            where=mask,
+            axis=1,
+            initial=-np.inf,
+        )
 
-        self.lower_bound_right = np.min(self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0), where=~mask, axis=1, initial=np.inf)
-        self.upper_bound_right = np.max(self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0), where=~mask, axis=1, initial=-np.inf)
+        self.lower_bound_right = np.min(
+            self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0),
+            where=~mask,
+            axis=1,
+            initial=np.inf,
+        )
+        self.upper_bound_right = np.max(
+            self.split_and_leaf_values["leaves"][None, :].repeat(mask.shape[0], axis=0),
+            where=~mask,
+            axis=1,
+            initial=-np.inf,
+        )
 
     def eval_train(self, feval):
         return np.zeros(0)
@@ -342,10 +371,9 @@ class LinearTree:
         self.bin_indices_valid = []
 
         return self
-    
+
     def dump_model(self, **kwargs) -> dict:
-        """Dump the model to a json string.
-        """
+        """Dump the model to a json string."""
         return self.model_to_string()
 
     def free_dataset(

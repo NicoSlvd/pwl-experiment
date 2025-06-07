@@ -54,7 +54,7 @@ def parse_cmdline_args(raw_args=None, parser=None):
     parser.add_argument(
         "--max_bin",
         type=int,
-        default=255,
+        default=64,
         help="Maximum number of bins for the model",
     )
     parser.add_argument(
