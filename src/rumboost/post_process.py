@@ -112,7 +112,7 @@ def bootstrap(
     return models
 
 
-def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utilities=False):
+def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utilities=False, dataset_test=None):
     """
     Provide a piece-wise linear model spcification based on a pre-trained rumboost model.
 
@@ -129,6 +129,8 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
         The variables of that alternative will be normalised when needed (socio-economic characteristics, ascs, ...).
     utilities: bool, optional (default=False)
         If True, the model will return the utility values, otherwise it will return the loglogit values.
+    dataset_test: pd.DataFrame, optional (default=None)
+       Only for predictions. If None, the dataset used to train the model will be used.
 
     Returns
     -------
@@ -164,6 +166,9 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
 
     # initialise utility specification with ascs
     utility_spec = {i: ascs[f"asc_{i}"] for i in range(model.num_classes)}
+
+    # store new variables created and split_points
+    variables_created = {}
 
     # loop over the ensembles
     for i, weight in weights.items():
@@ -270,6 +275,10 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                                 ((Variable(name) - split_points[j])
                                 * (Variable(name) - split_points[j + 1])) <= 0,
                             )
+                            variables_created[f"{name}_{i}_{j}"] = (
+                                split_points[j],
+                                split_points[j + 1],
+                            )
                         vars.append(Variable(f"{name}_{i}_{j}"))
                 for u in model.rum_structure[int(i)]["utility"]:
                     utility_spec[u] = utility_spec[u] + bioMultSum(
@@ -284,7 +293,23 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
 
         logprob = loglogit(utility_spec, availability, Variable("choice"))
 
-        the_biogeme = BIOGEME(database, logprob)
+        # if dataset_test is provided, we use it to define the variables
+        if dataset_test is not None:
+            test_database = db.Database("rumboost_test", dataset_test)
+            globals().update(test_database.variables)
+            # we need to define the variables in the test database
+            for var, sp in variables_created.items():
+                if var not in test_database.variables:
+                    test_database.define_variable(
+                        var,
+                        ((Variable(var.split("_")[0]) - sp[0])
+                         * (Variable(var.split("_")[0]) - sp[1])) <= 0
+                    )
+
+            # we use the test database to create the biogeme object
+            the_biogeme = BIOGEME(test_database, logprob)
+        else:
+            the_biogeme = BIOGEME(database, logprob)
         the_biogeme.modelName = model_name
         
         the_biogeme.calculateNullLoglikelihood(availability)
@@ -298,7 +323,23 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
             str(i): utility_spec[i] for i in range(model.num_classes)
         }
 
-        the_biogeme = BIOGEME(database, utilities_expr)
+        # if dataset_test is provided, we use it to define the variables
+        if dataset_test is not None:
+            test_database = db.Database("rumboost_test", dataset_test)
+            globals().update(test_database.variables)
+            # we need to define the variables in the test database
+            for var, sp in variables_created.items():
+                if var not in test_database.variables:
+                    test_database.define_variable(
+                        var,
+                        ((Variable(var.split("_")[0]) - sp[0])
+                         * (Variable(var.split("_")[0]) - sp[1])) <= 0
+                    )
+
+            # we use the test database to create the biogeme object
+            the_biogeme = BIOGEME(test_database, utilities_expr)
+        else:
+            the_biogeme = BIOGEME(database, utilities_expr)
         the_biogeme.modelName = model_name
 
         the_biogeme.calculateNullLoglikelihood(availability)
@@ -334,11 +375,13 @@ def estimate_dcm_with_assisted_spec(
         
     # results = the_biogeme.estimate(recycle=True)
     results = the_biogeme.estimate()
+    os.chdir(current_directory)
 
     return results
 
 def predict_with_assisted_spec(
-    dataset: pd.DataFrame,
+    dataset_train: pd.DataFrame,
+    dataset_test: pd.DataFrame,
     choice: pd.Series,
     model: RUMBoost,
     beta_values: dict,
@@ -349,8 +392,10 @@ def predict_with_assisted_spec(
 
     Parameters
     ----------
-    dataset: pd.DataFrame
-        A dataset used to predict the choices
+    dataset_train: pd.DataFrame
+        A dataset used for estimation
+    dataset_test: pd.DataFrame
+        A dataset used for prediction
     choice: pd.Series
         A series containing the choices
     model: RUMBoost
@@ -364,7 +409,7 @@ def predict_with_assisted_spec(
     -------
     prediction_results: biogeme.results.bioResults
     """
-    the_biogeme = assist_model_spec(model, dataset, choice, return_utilities=utilities)
+    the_biogeme = assist_model_spec(model, dataset_train, choice, return_utilities=utilities, dataset_test=dataset_test)
 
     prediction_results = the_biogeme.simulate(beta_values)
 

@@ -16,5 +16,6 @@ for model_type in ["linear"]:#, "constant_linear"]: #"constant","linear", , "con
                     "--monotone", str(monotone).lower(),
                     "--dataset", dataset,
                     "--save_model", "true",
-                    "--all_boosters", "true"
+                    "--all_boosters", "true",
+                    "--max_bin", "10",
                 ])

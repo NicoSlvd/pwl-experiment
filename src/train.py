@@ -124,7 +124,7 @@ def train(args):
             init_leaf_val=init_leaf_val,
         )
         save_path = (
-            args.outpath + f"model_{args.all_boosters}.json"
+            args.outpath + f"model_{args.all_boosters}_10bins.json"
         )
     elif args.model == "APLR":
         model = APLR(
@@ -158,7 +158,7 @@ def train(args):
 
     # save the results
     pd.DataFrame(results_dict, index=[0]).to_csv(
-        args.outpath + f"results_{args.all_boosters}.csv"
+        args.outpath + f"results_{args.all_boosters}_10bins.csv"
     )
 
     if args.save_model:
