@@ -54,7 +54,9 @@ def split_fe_model(model: RUMBoost):
     socio_economic_model.device = model.device
     socio_economic_model.nests = model.nests
     socio_economic_model.alphas = model.alphas
-    socio_economic_model.boost_from_parameter_space = model.boost_from_parameter_space[1::2]
+    socio_economic_model.boost_from_parameter_space = model.boost_from_parameter_space[
+        1::2
+    ]
     socio_economic_model.asc = model.asc
 
     return attributes_model, socio_economic_model
@@ -112,7 +114,15 @@ def bootstrap(
     return models
 
 
-def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utilities=False, dataset_test=None):
+def assist_model_spec(
+    model,
+    dataset,
+    choice,
+    alt_to_normalise=0,
+    return_utilities=False,
+    dataset_test=None,
+    choice_test=None,
+):
     """
     Provide a piece-wise linear model spcification based on a pre-trained rumboost model.
 
@@ -130,7 +140,9 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
     utilities: bool, optional (default=False)
         If True, the model will return the utility values, otherwise it will return the loglogit values.
     dataset_test: pd.DataFrame, optional (default=None)
-       Only for predictions. If None, the dataset used to train the model will be used.
+        Only for predictions. If None, the dataset used to train the model will be used.
+    choice_test: pd.Series, optional (default=None)
+        A series containing the choices for the test dataset
 
     Returns
     -------
@@ -138,6 +150,9 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
         A dictionary containing the model specification used to train a biogeme model.
     """
     dataset["choice"] = choice
+    if dataset_test is not None and choice_test is not None:
+        dataset_test["choice"] = choice_test
+
     database = db.Database("rumboost", dataset)
     globals().update(database.variables)
 
@@ -155,11 +170,10 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
             vars_in_utility[v].extend(rum["utility"])
             # unique_betas[v] = Beta(f"{v}_0", 0, None, None, 0)
 
-
     vars_to_normalise = []
     for variables, utilities in vars_in_utility.items():
         if len(np.unique(utilities)) == model.num_classes:
-            vars_to_normalise.append(variables) 
+            vars_to_normalise.append(variables)
 
     # get aggregated split points and leaf values by ensembles and variables
     weights = weights_to_plot_v2(model)
@@ -198,12 +212,21 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     else None
                 )
                 # define betas
-                if alt_to_normalise == model.rum_structure[int(i)]["utility"][0] and name in vars_to_normalise:
-                    beta_fixed = 1  
+                if (
+                    alt_to_normalise == model.rum_structure[int(i)]["utility"][0]
+                    and name in vars_to_normalise
+                ):
+                    beta_fixed = 1
                 else:
                     beta_fixed = 0
                 betas = [
-                    Beta(f"b_{name}_{i}_{j}", init_beta[j], lowerbound, upperbound, beta_fixed)
+                    Beta(
+                        f"b_{name}_{i}_{j}",
+                        init_beta[j],
+                        lowerbound,
+                        upperbound,
+                        beta_fixed,
+                    )
                     for j in range(len(split_points) - 1)
                 ]
                 # add piecewise linear variables to the proper utility function
@@ -217,8 +240,11 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                 init_beta = tree_info["Histogram values"]
                 beta_0 = init_beta[0]
                 init_beta = [i - beta_0 for i in init_beta]
-                if alt_to_normalise == model.rum_structure[int(i)]["utility"][0] and name in vars_to_normalise:
-                    beta_fixed = 1  
+                if (
+                    alt_to_normalise == model.rum_structure[int(i)]["utility"][0]
+                    and name in vars_to_normalise
+                ):
+                    beta_fixed = 1
                 else:
                     beta_fixed = 0
                 # monotonicity constraints
@@ -239,7 +265,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     else None
                 )
                 # define betas
-                if len(split_points) == 1: # if already binary
+                if len(split_points) == 1:  # if already binary
                     # if len(vars_in_utility[name]) > 1:
                     #     beta_dict = {
                     #         f"{name}_{i}_{0}": unique_betas[name]
@@ -248,11 +274,17 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     # else:
 
                     beta_dict = {
-                        f"b_{name}_{i}_{0}": Beta(f"b_{name}_{i}_0", beta_0, lowerbound, upperbound, beta_fixed)
+                        f"b_{name}_{i}_{0}": Beta(
+                            f"b_{name}_{i}_0",
+                            beta_0,
+                            lowerbound,
+                            upperbound,
+                            beta_fixed,
+                        )
                     }
                     vars = [Variable(name)]
                 else:
-                    #if non binary
+                    # if non binary
                     split_points.insert(0, dataset[name].min())
                     split_points.append(dataset[name].max())
                     # we normalise to zero the first beta
@@ -262,18 +294,24 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                     # if monotonicity constraint, we use previous beta as lower/upper bound
                     vars = []
                     for j in range(1, len(split_points) - 1):
-                        beta_dict[f"b_{name}_{i}_{j}"] = Beta(
-                            f"delta_{name}_{i}_{j}",
-                            init_beta[j] - init_beta[j-1],
-                            lowerbound, 
-                            upperbound,
-                            beta_fixed,
-                        ) + beta_dict[f"b_{name}_{i}_{j-1}"]
+                        beta_dict[f"b_{name}_{i}_{j}"] = (
+                            Beta(
+                                f"delta_{name}_{i}_{j}",
+                                init_beta[j] - init_beta[j - 1],
+                                lowerbound,
+                                upperbound,
+                                beta_fixed,
+                            )
+                            + beta_dict[f"b_{name}_{i}_{j-1}"]
+                        )
                         if f"{name}_{i}_{j}" not in database.variables:
                             database.define_variable(
                                 f"{name}_{i}_{j}",
-                                ((Variable(name) - split_points[j])
-                                * (Variable(name) - split_points[j + 1])) <= 0,
+                                (
+                                    (Variable(name) - split_points[j])
+                                    * (Variable(name) - split_points[j + 1])
+                                )
+                                <= 0,
                             )
                             variables_created[f"{name}_{i}_{j}"] = (
                                 split_points[j],
@@ -288,11 +326,7 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
     availability = {i: 1 for i in range(model.num_classes)}
 
     if not return_utilities:
-
-        model_name = "assisted_model_pwlinear"
-
         logprob = loglogit(utility_spec, availability, Variable("choice"))
-
         # if dataset_test is provided, we use it to define the variables
         if dataset_test is not None:
             test_database = db.Database("rumboost_test", dataset_test)
@@ -302,26 +336,30 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                 if var not in test_database.variables:
                     test_database.define_variable(
                         var,
-                        ((Variable(var.split("_")[0]) - sp[0])
-                         * (Variable(var.split("_")[0]) - sp[1])) <= 0
+                        (
+                            (Variable(var.split("_")[0]) - sp[0])
+                            * (Variable(var.split("_")[0]) - sp[1])
+                        )
+                        <= 0,
                     )
+
 
             # we use the test database to create the biogeme object
             the_biogeme = BIOGEME(test_database, logprob)
         else:
             the_biogeme = BIOGEME(database, logprob)
+
+        model_name = "assisted_model_pwlinear_lpmc"
         the_biogeme.modelName = model_name
-        
+
         the_biogeme.calculateNullLoglikelihood(availability)
 
         return the_biogeme
-    
+
     else:
         model_name = "assisted_model_utilities_pwlinear"
 
-        utilities_expr = {
-            str(i): utility_spec[i] for i in range(model.num_classes)
-        }
+        utilities_expr = {str(i): utility_spec[i] for i in range(model.num_classes)}
 
         # if dataset_test is provided, we use it to define the variables
         if dataset_test is not None:
@@ -332,8 +370,11 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
                 if var not in test_database.variables:
                     test_database.define_variable(
                         var,
-                        ((Variable(var.split("_")[0]) - sp[0])
-                         * (Variable(var.split("_")[0]) - sp[1])) <= 0
+                        (
+                            (Variable(var.split("_")[0]) - sp[0])
+                            * (Variable(var.split("_")[0]) - sp[1])
+                        )
+                        <= 0,
                     )
 
             # we use the test database to create the biogeme object
@@ -346,10 +387,12 @@ def assist_model_spec(model, dataset, choice, alt_to_normalise=0, return_utiliti
 
         return the_biogeme
 
+
 def estimate_dcm_with_assisted_spec(
     dataset: pd.DataFrame,
     choice: pd.Series,
     model: RUMBoost,
+    dataset_name: str = "SwissMetro",
 ):
     """
     Estimate a Discrete Choice Model (currently only logit) with a piece-wise linear model specification based on a pre-trained rumboost model.
@@ -362,6 +405,8 @@ def estimate_dcm_with_assisted_spec(
         A series containing the choices
     model: RUMBoost
         A trained rumboost model.
+    dataset_name: str, optional (default="SwissMetro")
+        The dataset name
 
     Returns
     -------
@@ -371,14 +416,15 @@ def estimate_dcm_with_assisted_spec(
 
     current_directory = os.getcwd()
 
-    os.chdir(current_directory + "/results/SwissMetro/assisted_specification/")
-        
+    os.chdir(current_directory + f"/results/{dataset_name}/assisted_specification/")
+
     # results = the_biogeme.estimate(recycle=True)
     results = the_biogeme.estimate()
 
     os.chdir(current_directory)
 
     return results
+
 
 def predict_with_assisted_spec(
     dataset_train: pd.DataFrame,
@@ -387,7 +433,7 @@ def predict_with_assisted_spec(
     choice_test: pd.Series,
     model: RUMBoost,
     beta_values: dict,
-    utilities: bool = False
+    utilities: bool = False,
 ):
     """
     Predict choices with a piece-wise linear model specification based on a pre-trained rumboost model.
@@ -413,7 +459,14 @@ def predict_with_assisted_spec(
     -------
     prediction_results: biogeme.results.bioResults
     """
-    the_biogeme = assist_model_spec(model, dataset_train, choice_train, return_utilities=utilities, dataset_test=dataset_test)
+    the_biogeme = assist_model_spec(
+        model,
+        dataset_train,
+        choice_train,
+        return_utilities=utilities,
+        dataset_test=dataset_test,
+        choice_test=choice_test,
+    )
 
     prediction_results = the_biogeme.simulate(beta_values)
 
