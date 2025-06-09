@@ -1935,16 +1935,39 @@ def create_name(features):
 
 
 def lintree_to_weights(split_and_leaf_values: dict, feature: str, utility: int):
+    """
+    Convert a split and leaf values dictionary from a linear tree to a list of weights.
+    The split_and_leaf_values dictionary should contain the keys "splits" and "leaves",
+    where "splits" is a list of split points and "leaves" is a list of leaf values.
+
+    Parameters
+    ----------
+    split_and_leaf_values : dict
+        A dictionary containing the split points and leaf values.
+        It should have the keys "splits" and "leaves".
+    feature : str
+        The name of the feature for which the weights are being calculated.
+    utility : int
+        The utility index for which the weights are being calculated.
+    
+    Returns
+    -------
+    lin_weights : list
+        A list of lists, where each inner list contains the feature name, split point,
+        left leaf value, right leaf value, and utility index.
+    """
 
     lin_weights = []
 
     splits = np.array(split_and_leaf_values["splits"])
     leaves = np.array(split_and_leaf_values["leaves"])
 
+    #find unique splits and leaves among all splits and leaves
     leaf_change_idx = np.where(leaves[:-1] != leaves[1:])[0]
     unique_splits = splits[leaf_change_idx + 1]
     unique_leaves = np.concat([leaves[leaf_change_idx], leaves[-1].reshape(1)])
 
+    #rearrnage leaves to have them in same format than trees boosted from utility space
     for i, u in enumerate(unique_leaves[:-1]):
         if i == 0:
             left_leaf = u
@@ -2240,11 +2263,13 @@ def get_weights(model, num_iteration=None):
     weights_market = []
 
     for i, b in enumerate(model_json):
+        #trees booster from parameter space
         if "split_and_leaf_values" in b:
             feature = model.rum_structure[i]["variables"][0]
             lin_weights = lintree_to_weights(b["split_and_leaf_values"], feature, i)
             weights.extend(lin_weights)
-        else:
+        else: 
+            #trees boosted from utility space
             feature_names = b["feature_names"]
             for trees in b["tree_info"]:
                 features = []

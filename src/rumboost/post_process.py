@@ -115,13 +115,13 @@ def bootstrap(
 
 
 def assist_model_spec(
-    model,
-    dataset,
-    choice,
-    alt_to_normalise=0,
-    return_utilities=False,
-    dataset_test=None,
-    choice_test=None,
+    model: RUMBoost,
+    dataset: pd.DataFrame,
+    choice: pd.Series,
+    alt_to_normalise: int = 0,
+    return_utilities: bool = False,
+    dataset_test: pd.Series = None,
+    choice_test: pd.Series = None,
 ):
     """
     Provide a piece-wise linear model spcification based on a pre-trained rumboost model.
@@ -164,11 +164,9 @@ def assist_model_spec(
 
     # prepare variables to normalise
     vars_in_utility = {v: [] for v in dataset.columns}
-    unique_betas = {}
     for rum in model.rum_structure:
         for v in rum["variables"]:
             vars_in_utility[v].extend(rum["utility"])
-            # unique_betas[v] = Beta(f"{v}_0", 0, None, None, 0)
 
     vars_to_normalise = []
     for variables, utilities in vars_in_utility.items():
@@ -266,13 +264,6 @@ def assist_model_spec(
                 )
                 # define betas
                 if len(split_points) == 1:  # if already binary
-                    # if len(vars_in_utility[name]) > 1:
-                    #     beta_dict = {
-                    #         f"{name}_{i}_{0}": unique_betas[name]
-                    #     }
-                    #     vars = [Variable(name)]
-                    # else:
-
                     beta_dict = {
                         f"b_{name}_{i}_{0}": Beta(
                             f"b_{name}_{i}_0",
@@ -342,7 +333,6 @@ def assist_model_spec(
                         )
                         <= 0,
                     )
-
 
             # we use the test database to create the biogeme object
             the_biogeme = BIOGEME(test_database, logprob)

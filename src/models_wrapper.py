@@ -116,7 +116,7 @@ class RUMBoost:
             raise ValueError(
                 "If folds are specified, X_valid and y_valid cannot be specified."
             )
-        if folds is not None:
+        if folds is not None: # cross-validation
             self.lgb_valid = []
             self.lgb_train = []
             for _, (train_idx, test_idx) in enumerate(folds):
@@ -140,7 +140,7 @@ class RUMBoost:
                 X_train,
                 y_train,
             )
-        else:
+        else: # no cross-validation
             self.lgb_train = build_lgb_dataset(
                 X_train,
                 y_train,

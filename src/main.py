@@ -5,7 +5,7 @@ from train import train
 
 def main(raw_args = None):
     """
-    Main function to run the depression scale model.
+    Main function to run the piece-wise linear RUMBoost.
 
     Parameters
     ----------

@@ -68,6 +68,7 @@ def train(args):
 
     bin_vars, cont_vars = dataset_vars[args.dataset]
 
+    #augment the dataset with polynomial features
     X_train = augment_dataset(data_train, cont_vars, type=args.model_type)
     X_test = augment_dataset(data_test, cont_vars, type=args.model_type)
     X_train_bin = augment_dataset(
@@ -113,6 +114,7 @@ def train(args):
     )
     X_test_scaled = pd.DataFrame(scaler.transform(X_test), columns=X_test.columns)
 
+    #create instance of the model
     if args.model == "RUMBoost":
         model = RUMBoost(
             structure=structure,
